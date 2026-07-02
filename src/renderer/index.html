@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex 用量</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="orb" class="orb" aria-label="Codex 用量悬浮球">
+        <div class="ring">
+          <div id="ringFill" class="ring-fill"></div>
+          <div class="orb-core">
+            <span id="tierText" class="tier">--</span>
+            <strong id="percentText">--%</strong>
+            <span id="orbCaption" class="caption">5h 已用</span>
+          </div>
+        </div>
+        <div id="resizeGrip" class="resize-grip" aria-hidden="true"></div>
+      </section>
+
+      <button id="scrim" class="scrim" hidden aria-label="关闭详情"></button>
+
+      <aside id="panel" class="panel" hidden>
+        <header class="panel-head">
+          <div>
+            <div class="title-row">
+              <h1>Codex 用量</h1>
+              <span id="lastSyncedText">--</span>
+            </div>
+          </div>
+          <div class="head-actions">
+            <button id="refreshButton" class="icon-button" title="刷新" aria-label="刷新">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>
+            </button>
+            <button id="closePanel" class="icon-button" title="收起" aria-label="收起">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="panel-content">
+        <section class="quota-grid" aria-label="额度窗口">
+          <article class="quota-card">
+            <div class="quota-topline">
+              <span>5 小时窗口剩余</span>
+              <strong id="fiveHourUsed">--%</strong>
+            </div>
+            <div class="meter"><div id="fiveHourBar"></div></div>
+            <dl class="quota-meta">
+              <div>
+                <dt>已用</dt>
+                <dd id="fiveHourRemain">--%</dd>
+              </div>
+              <div>
+                <dt>重置</dt>
+                <dd id="fiveHourReset">--</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="quota-card">
+            <div class="quota-topline">
+              <span>1 周窗口剩余</span>
+              <strong id="oneWeekUsed">--%</strong>
+            </div>
+            <div class="meter"><div id="oneWeekBar"></div></div>
+            <dl class="quota-meta">
+              <div>
+                <dt>已用</dt>
+                <dd id="oneWeekRemain">--%</dd>
+              </div>
+              <div>
+                <dt>重置</dt>
+                <dd id="oneWeekReset">--</dd>
+              </div>
+            </dl>
+          </article>
+        </section>
+
+        <dl class="account-grid">
+          <div>
+            <dt>会员</dt>
+            <dd id="planText">--</dd>
+          </div>
+          <div>
+            <dt>会员到期</dt>
+            <dd id="expiresText">--</dd>
+          </div>
+        </dl>
+
+        <section class="token-section">
+          <div class="section-title">
+            <h2>Token 使用量</h2>
+            <span id="tokenSourceText">--</span>
+          </div>
+          <dl class="token-grid">
+            <div>
+              <dt>今日</dt>
+              <dd id="token24h">--</dd>
+            </div>
+            <div>
+              <dt>7 天</dt>
+              <dd id="token7d">--</dd>
+            </div>
+            <div>
+              <dt>30 天</dt>
+              <dd id="token30d">--</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="cards-section">
+          <div class="section-title">
+            <h2>可用重置卡</h2>
+            <span id="cardCountText">0 张</span>
+          </div>
+          <div id="resetCards" class="card-list"></div>
+        </section>
+        </div>
+
+        <footer class="actions">
+          <button id="openButton" class="text-button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            打开网页
+          </button>
+          <button id="quitButton" class="text-button ghost">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><path d="M12 2v10"/></svg>
+            退出
+          </button>
+        </footer>
+      </aside>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

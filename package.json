@@ -1,0 +1,48 @@
+{
+  "name": "codex-usage-float",
+  "version": "1.0.0",
+  "description": "Codex 用量桌面悬浮窗",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:dir": "electron-builder --dir"
+  },
+  "keywords": [
+    "electron",
+    "codex",
+    "usage",
+    "floating-window"
+  ],
+  "author": "Codex",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.15.0"
+  },
+  "build": {
+    "appId": "com.codexusage.float",
+    "productName": "CodexUsageFloat",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/CodexUsage_512.ico",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/CodexUsage_512.ico",
+      "target": [
+        "portable"
+      ],
+      "artifactName": "${productName}-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}.${ext}",
+      "requestExecutionLevel": "user"
+    },
+    "compression": "maximum"
+  }
+}
