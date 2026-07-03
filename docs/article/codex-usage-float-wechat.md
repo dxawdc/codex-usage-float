@@ -2,8 +2,8 @@
 
 ![文章封面](./wechat-cover.png)
 
-> 作者：@可以叫我才哥  
-> 项目：Codex Usage Float  
+> 作者：@可以叫我才哥<br>
+> 项目：Codex Usage Float<br>
 > 关键词：Codex、AI 编程、多账号管理、Token 统计、Electron
 
 最近一段时间，我在日常开发中使用 Codex 的频率越来越高。
@@ -493,10 +493,12 @@ Windows 版本使用 `electron-builder` 打包为 portable EXE。每次发布前
 
 如果你也在高频使用 Codex，或者对这种小而具体的效率工具感兴趣，欢迎查看项目、阅读源码，也欢迎提出问题和建议。
 
-**项目地址：**  
+**项目地址：**
+
 [https://github.com/dxawdc/codex-usage-float](https://github.com/dxawdc/codex-usage-float)
 
-**作者：**  
+**作者：**
+
 @可以叫我才哥
 
 ---
@@ -510,4 +512,3 @@ Windows 版本使用 `electron-builder` 打包为 portable EXE。每次发布前
 - [OpenAI Codex GitHub 仓库](https://github.com/openai/codex)
 - [170-carry/codex-tools](https://github.com/170-carry/codex-tools)
 - [lyssl/codex_usage](https://github.com/lyssl/codex_usage)
-
