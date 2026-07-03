@@ -2,7 +2,7 @@
   <h1>Codex Usage Float</h1>
   <p><strong>Codex 多账号用量、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p>
-    <img src="https://img.shields.io/badge/version-v1.0.0-2f81f7" alt="version v1.0.0" />
+    <img src="https://img.shields.io/badge/version-v1.0.1-2f81f7" alt="version v1.0.1" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-38-47848f" alt="Electron 38" />
@@ -191,7 +191,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-1.0.0.exe
+CodexUsageFloat-1.0.1.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
