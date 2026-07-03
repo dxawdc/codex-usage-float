@@ -17,8 +17,8 @@ const PROFILE_USAGE_PATH = '/wham/profiles/me';
 const RESET_CREDITS_PATH = '/wham/rate-limit-reset-credits';
 const BACKEND_API_PREFIX = '/backend-api';
 const FLOAT_PADDING = 8;
-const PANEL_WIDTH = 448;
-const PANEL_HEIGHT = 640;
+const PANEL_WIDTH = 560;
+const PANEL_HEIGHT = 720;
 const PANEL_GAP = 12;
 const PANEL_EDGE_PADDING = 12;
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
@@ -38,6 +38,10 @@ function configPath() {
 
 function statePath() {
   return path.join(app.getPath('userData'), 'usage-state.json');
+}
+
+function accountsPath() {
+  return path.join(app.getPath('userData'), 'accounts.json');
 }
 
 function debugPath() {
@@ -180,28 +184,257 @@ function percentOrNull(value) {
   return null;
 }
 
-async function readLocalCodexAuth() {
-  const auth = await readJson(AUTH_PATH, null);
+function shortIdentity(value) {
+  const text = String(value || '');
+  return text ? text.slice(0, 6) : 'unknown';
+}
+
+function cleanText(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function firstClean(...values) {
+  for (const value of values) {
+    const text = cleanText(value);
+    if (text) return text;
+  }
+  return null;
+}
+
+function getPathValue(source, pathName) {
+  return String(pathName || '')
+    .split('.')
+    .reduce((value, key) => (value && typeof value === 'object' ? value[key] : null), source);
+}
+
+function deepPickByKey(source, keys, seen = new Set()) {
+  if (!source || typeof source !== 'object' || seen.has(source)) return null;
+  seen.add(source);
+  for (const [key, value] of Object.entries(source)) {
+    if (keys.includes(key)) {
+      const text = cleanText(value);
+      if (text) return text;
+    }
+  }
+  for (const value of Object.values(source)) {
+    if (value && typeof value === 'object') {
+      const text = deepPickByKey(value, keys, seen);
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function normalizeProfileUsername(value) {
+  const text = cleanText(value);
+  if (!text) return null;
+  if (text.includes('@')) return text;
+  return `@${text.replace(/^@+/, '')}`;
+}
+
+function extractProfileIdentity(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const nickname = firstClean(
+    getPathValue(payload, 'display_name'),
+    getPathValue(payload, 'displayName'),
+    getPathValue(payload, 'profile.display_name'),
+    getPathValue(payload, 'profile.displayName'),
+    getPathValue(payload, 'profile.name'),
+    getPathValue(payload, 'user.display_name'),
+    getPathValue(payload, 'user.displayName'),
+    getPathValue(payload, 'user.name'),
+    getPathValue(payload, 'account.display_name'),
+    getPathValue(payload, 'account.displayName'),
+    getPathValue(payload, 'account.name'),
+    getPathValue(payload, 'name'),
+    getPathValue(payload, 'nickname'),
+    deepPickByKey(payload, ['display_name', 'displayName', 'nickname', 'name'])
+  );
+  const username = normalizeProfileUsername(firstClean(
+    getPathValue(payload, 'username'),
+    getPathValue(payload, 'user_name'),
+    getPathValue(payload, 'userName'),
+    getPathValue(payload, 'handle'),
+    getPathValue(payload, 'profile.username'),
+    getPathValue(payload, 'profile.user_name'),
+    getPathValue(payload, 'profile.userName'),
+    getPathValue(payload, 'profile.handle'),
+    getPathValue(payload, 'user.username'),
+    getPathValue(payload, 'user.user_name'),
+    getPathValue(payload, 'user.userName'),
+    getPathValue(payload, 'user.handle'),
+    getPathValue(payload, 'account.username'),
+    getPathValue(payload, 'account.user_name'),
+    getPathValue(payload, 'account.userName'),
+    getPathValue(payload, 'account.handle'),
+    deepPickByKey(payload, ['username', 'user_name', 'userName', 'handle'])
+  ));
+  return {
+    nickname,
+    username,
+    hasProfileIdentity: Boolean(nickname || username)
+  };
+}
+
+function usernameFromAuth(idPayload, accessPayload, claim, accountId, userId) {
+  return cleanText(
+    idPayload?.preferred_username ||
+    idPayload?.username ||
+    accessPayload?.preferred_username ||
+    accessPayload?.username ||
+    idPayload?.email ||
+    accessPayload?.email ||
+    idPayload?.['https://api.openai.com/profile']?.email ||
+    accessPayload?.['https://api.openai.com/profile']?.email ||
+    claim.email ||
+    (userId ? `user-${shortIdentity(userId)}` : null) ||
+    (accountId ? `acct-${shortIdentity(accountId)}` : null)
+  );
+}
+
+function defaultNickname(username, planTier, accountKey) {
+  const name = cleanText(username);
+  if (name?.includes('@')) return name.split('@')[0];
+  return name || formatPlanName(planTier) || `Codex ${shortIdentity(accountKey)}`;
+}
+
+function formatPlanName(value) {
+  const plan = String(value || '').toLowerCase();
+  if (!plan) return null;
+  if (plan.includes('enterprise')) return 'Enterprise';
+  if (plan.includes('business')) return 'Business';
+  if (plan.includes('team')) return 'Team';
+  if (plan.includes('pro')) return 'Pro';
+  if (plan.includes('plus')) return 'Plus';
+  if (plan.includes('free')) return 'Free';
+  return cleanText(value);
+}
+
+function accountLabel(account) {
+  const nickname = cleanText(account?.nickname) || defaultNickname(account?.username, account?.planTier, account?.accountKey);
+  const username = cleanText(account?.username) || `账号 ${shortIdentity(account?.accountKey || account?.accountId || account?.userId)}`;
+  return `${nickname} ${username}`;
+}
+
+function parseCodexAuth(auth) {
   const idPayload = decodeJwtPayload(auth?.tokens?.id_token);
   const accessPayload = decodeJwtPayload(auth?.tokens?.access_token);
   const claim = idPayload?.['https://api.openai.com/auth'] || accessPayload?.['https://api.openai.com/auth'] || {};
   const accountId = auth?.tokens?.account_id || claim.chatgpt_account_id || null;
+  const userId = claim.chatgpt_user_id || claim.user_id || idPayload?.sub || accessPayload?.sub || null;
+  const accountKey = identityKey(userId || accountId);
+  const username = usernameFromAuth(idPayload, accessPayload, claim, accountId, userId);
+  const authNickname = firstClean(
+    idPayload?.name,
+    idPayload?.nickname,
+    accessPayload?.name,
+    accessPayload?.nickname
+  );
+  const planTier = claim.chatgpt_plan_type || claim.plan_type || null;
   return {
     accessToken: auth?.tokens?.access_token || null,
     accountId,
-    userId: claim.chatgpt_user_id || null,
-    accountKey: identityKey(claim.chatgpt_user_id || accountId),
+    userId,
+    accountKey,
+    username,
+    nickname: authNickname || defaultNickname(username, planTier, accountKey),
     authIssuedAt: normalizeDate(accessPayload?.iat || idPayload?.iat),
-    planTier: claim.chatgpt_plan_type || claim.plan_type || null,
+    planTier,
     membershipExpiresAt: normalizeDate(claim.chatgpt_subscription_active_until),
     membershipStartedAt: normalizeDate(claim.chatgpt_subscription_active_start),
     subscriptionLastCheckedAt: normalizeDate(claim.chatgpt_subscription_last_checked)
   };
 }
 
+async function readLocalCodexAuth() {
+  return parseCodexAuth(await readJson(AUTH_PATH, null));
+}
+
 function identityKey(value) {
   if (!value) return null;
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
+}
+
+async function loadAccountsStore() {
+  const store = await readJson(accountsPath(), { version: 1, accounts: [] });
+  return {
+    version: 1,
+    accounts: Array.isArray(store?.accounts) ? store.accounts : []
+  };
+}
+
+async function saveAccountsStore(store) {
+  await writeJson(accountsPath(), {
+    version: 1,
+    accounts: Array.isArray(store?.accounts) ? store.accounts : []
+  });
+}
+
+function buildStoredAccount(authJson, local, previous = {}) {
+  const now = new Date().toISOString();
+  const accountKey = local.accountKey || identityKey(local.userId || local.accountId) || crypto.randomUUID();
+  const profileIdentity = local.profileIdentity || previous.tokenUsage?.profileIdentity || {};
+  return {
+    id: previous.id || crypto.randomUUID(),
+    nickname: cleanText(profileIdentity.nickname) || cleanText(previous.nickname) || cleanText(local.nickname) ||
+      defaultNickname(local.username, local.planTier, accountKey),
+    username: cleanText(profileIdentity.username) || cleanText(previous.username) || cleanText(local.username) ||
+      `账号 ${shortIdentity(accountKey)}`,
+    accountKey,
+    accountId: local.accountId || previous.accountId || null,
+    userId: local.userId || previous.userId || null,
+    planTier: local.planTier || previous.planTier || null,
+    membershipExpiresAt: local.membershipExpiresAt || previous.membershipExpiresAt || null,
+    authJson,
+    usage: previous.usage || null,
+    tokenUsage: previous.tokenUsage || null,
+    resetCards: previous.resetCards || [],
+    usageError: previous.usageError || null,
+    createdAt: previous.createdAt || now,
+    updatedAt: now,
+    lastSwitchedAt: previous.lastSwitchedAt || null,
+    lastSyncedAt: previous.lastSyncedAt || null
+  };
+}
+
+function accountView(account, currentAccountKey = null) {
+  return {
+    id: account.id,
+    nickname: account.nickname,
+    username: account.username,
+    label: accountLabel(account),
+    accountKey: account.accountKey,
+    planTier: account.planTier,
+    membershipExpiresAt: account.membershipExpiresAt,
+    usageWindows: account.usage?.usageWindows || {},
+    resetCards: account.resetCards || account.usage?.resetCards || [],
+    tokenUsage: account.tokenUsage || null,
+    isCurrent: Boolean(currentAccountKey && account.accountKey === currentAccountKey),
+    usageError: account.usageError || null,
+    lastSyncedAt: account.lastSyncedAt || account.updatedAt || null,
+    lastSwitchedAt: account.lastSwitchedAt || null
+  };
+}
+
+function accountFromCurrent(local, usage, tokenUsage, resetCards, syncedAt) {
+  return {
+    id: 'current',
+    nickname: local.nickname,
+    username: local.username,
+    label: accountLabel(local),
+    accountKey: local.accountKey,
+    accountId: local.accountId,
+    userId: local.userId,
+    planTier: usage?.planTier || local.planTier,
+    membershipExpiresAt: usage?.membershipExpiresAt || local.membershipExpiresAt,
+    usage: { usageWindows: usage?.usageWindows || {}, resetCards },
+    usageWindows: usage?.usageWindows || {},
+    resetCards: resetCards || [],
+    tokenUsage: tokenUsage || null,
+    isCurrent: true,
+    lastSyncedAt: syncedAt
+  };
 }
 
 async function refreshFromLocalAuth() {
@@ -521,9 +754,20 @@ function sumDailyTokenBuckets(buckets, days, now = new Date()) {
 }
 
 function mapAccountTokenUsagePayload(payload, accountKey, previous = null) {
+  const profileIdentity = extractProfileIdentity(payload);
   const buckets = payload?.daily_usage_buckets || payload?.dailyUsageBuckets ||
     payload?.stats?.daily_usage_buckets || payload?.stats?.dailyUsageBuckets;
-  if (!Array.isArray(buckets)) return null;
+  if (!Array.isArray(buckets)) {
+    return profileIdentity.hasProfileIdentity
+      ? {
+          source: 'account-profile',
+          sourceLabel: '\u8d26\u53f7\u6570\u636e',
+          updatedAt: new Date().toISOString(),
+          accountKey,
+          profileIdentity
+        }
+      : null;
+  }
 
   const summary = payload?.stats || payload?.summary || payload || {};
   const today = sumDailyTokenBuckets(buckets, 1);
@@ -538,6 +782,7 @@ function mapAccountTokenUsagePayload(payload, accountKey, previous = null) {
     sourceLabel: '\u8d26\u53f7\u6570\u636e',
     updatedAt: new Date().toISOString(),
     accountKey,
+    profileIdentity,
     accountAssignments: previous?.accountAssignments || {},
     fingerprintAssignments: previous?.fingerprintAssignments || {},
     fingerprintVersion: TOKEN_FINGERPRINT_VERSION,
@@ -934,6 +1179,88 @@ async function collectTokenUsageSnapshot({
   };
 }
 
+async function collectLocalTokenSummary() {
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const windows = {
+    today: { start: new Date(new Date(nowMs).getFullYear(), new Date(nowMs).getMonth(), new Date(nowMs).getDate()).getTime(), total: emptyTokenTotals(), eventCount: 0 },
+    last7d: { start: nowMs - 7 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), eventCount: 0 },
+    last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), eventCount: 0 }
+  };
+  let sourceFileCount = 0;
+  let failedFileCount = 0;
+  let scannedEventCount = 0;
+  let duplicateEventCount = 0;
+  let latestEventAt = null;
+  const files = [
+    ...(await collectJsonlFiles(CODEX_SESSIONS_PATH)),
+    ...(await collectJsonlFiles(CODEX_ARCHIVED_SESSIONS_PATH))
+  ];
+
+  for (const file of files) {
+    sourceFileCount += 1;
+    let previousTotal = emptyTokenTotals();
+    let contents;
+    try {
+      contents = await fs.readFile(file, 'utf8');
+    } catch {
+      failedFileCount += 1;
+      continue;
+    }
+    for (const line of contents.split(/\r?\n/)) {
+      if (!line.trim() || !line.includes('"token_count"')) continue;
+      let root;
+      try {
+        root = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (root?.type !== 'event_msg' || root?.payload?.type !== 'token_count') continue;
+      const timestamp = Date.parse(root.timestamp);
+      const cumulative = parseTokenTotals(root.payload?.info?.total_token_usage);
+      const last = parseTokenTotals(root.payload?.info?.last_token_usage);
+      if (!Number.isFinite(timestamp) || (!cumulative && !last)) continue;
+      const delta = cumulative ? subtractTokenTotals(cumulative, previousTotal) : last;
+      if (cumulative) previousTotal = cumulative;
+      if (!hasTokenTotals(delta)) {
+        duplicateEventCount += 1;
+        continue;
+      }
+      scannedEventCount += 1;
+      for (const window of Object.values(windows)) {
+        if (timestamp >= window.start) {
+          addTokenTotals(window.total, delta);
+          window.eventCount += 1;
+        }
+      }
+      latestEventAt = latestEventAt ? Math.max(latestEventAt, timestamp) : timestamp;
+    }
+  }
+
+  const mapWindow = (window) => {
+    const inputTokens = Number(window.total.inputTokens || 0);
+    const cachedInputTokens = Number(window.total.cachedInputTokens || 0);
+    return {
+      ...window.total,
+      cacheRate: inputTokens > 0 ? cachedInputTokens / inputTokens * 100 : null,
+      eventCount: window.eventCount
+    };
+  };
+  return {
+    updatedAt: now,
+    windows: {
+      today: mapWindow(windows.today),
+      last7d: mapWindow(windows.last7d),
+      last30d: mapWindow(windows.last30d)
+    },
+    sourceFileCount,
+    failedFileCount,
+    eventCount: scannedEventCount,
+    duplicateEventCount,
+    latestEventAt: latestEventAt ? new Date(latestEventAt).toISOString() : null
+  };
+}
+
 async function fetchResetCreditDetails(local) {
   try {
     const response = await fetchJson(`https://chatgpt.com${BACKEND_API_PREFIX}${RESET_CREDITS_PATH}`, {
@@ -975,6 +1302,112 @@ async function fetchAccountTokenUsage(local, previous = null) {
   }
 }
 
+async function refreshStoredAccount(account) {
+  const local = parseCodexAuth(account.authJson);
+  const now = new Date().toISOString();
+  try {
+    const [fetchedUsage, fetchedTokenUsage] = await Promise.all([
+      fetchUsageForLocalAuth(local),
+      fetchAccountTokenUsage(local, account.tokenUsage || null)
+    ]);
+    const hasFreshUsage = hasOfficialUsageData(fetchedUsage);
+    const usage = hasFreshUsage ? fetchedUsage : account.usage || fetchedUsage;
+    const tokenUsage = fetchedTokenUsage || account.tokenUsage || null;
+    const profileIdentity = fetchedTokenUsage?.profileIdentity || account.tokenUsage?.profileIdentity || {};
+    const resetCards = hasFreshUsage
+      ? inferResetCardExpiry(fetchedUsage.resetCards || account.resetCards || [])
+      : account.resetCards || account.usage?.resetCards || [];
+    return {
+      ...account,
+      nickname: profileIdentity.nickname || account.nickname || local.nickname,
+      username: profileIdentity.username || account.username || local.username,
+      accountKey: local.accountKey || account.accountKey,
+      accountId: local.accountId || account.accountId,
+      userId: local.userId || account.userId,
+      planTier: fetchedUsage.planTier || account.planTier || local.planTier,
+      membershipExpiresAt: fetchedUsage.membershipExpiresAt || account.membershipExpiresAt || local.membershipExpiresAt,
+      usage,
+      tokenUsage,
+      resetCards,
+      usageError: null,
+      updatedAt: now,
+      lastSyncedAt: hasFreshUsage || fetchedTokenUsage ? now : account.lastSyncedAt
+    };
+  } catch (error) {
+    return {
+      ...account,
+      usageError: String(error?.message || error || '刷新失败').slice(0, 160),
+      updatedAt: now
+    };
+  }
+}
+
+async function refreshAccountsStore({ currentAuthJson = null, currentLocal = null, currentUsage = null, currentTokenUsage = null, currentResetCards = [], syncedAt = null } = {}) {
+  const store = await loadAccountsStore();
+  const currentAccountKey = currentLocal?.accountKey || null;
+  const nextAccounts = [];
+  for (const account of store.accounts) {
+    if (currentAccountKey && account.accountKey === currentAccountKey && currentAuthJson) {
+      nextAccounts.push(buildStoredAccount(currentAuthJson, {
+        ...currentLocal,
+        planTier: currentUsage?.planTier || currentLocal.planTier,
+        membershipExpiresAt: currentUsage?.membershipExpiresAt || currentLocal.membershipExpiresAt
+      }, {
+        ...account,
+        usage: currentUsage || account.usage,
+        tokenUsage: currentTokenUsage || account.tokenUsage,
+        resetCards: currentResetCards || account.resetCards,
+        usageError: null,
+        lastSyncedAt: syncedAt || account.lastSyncedAt
+      }));
+    } else {
+      nextAccounts.push(await refreshStoredAccount(account));
+    }
+  }
+  const nextStore = { version: 1, accounts: nextAccounts };
+  await saveAccountsStore(nextStore);
+  return nextStore;
+}
+
+async function importCurrentAccount() {
+  const authJson = await readJson(AUTH_PATH, null);
+  const local = parseCodexAuth(authJson);
+  if (!local.accessToken || !local.accountKey) throw new Error('当前 auth.json 未包含可导入的 Codex ChatGPT 账号');
+  const store = await loadAccountsStore();
+  const existingIndex = store.accounts.findIndex((account) => account.accountKey === local.accountKey);
+  const existing = existingIndex >= 0 ? store.accounts[existingIndex] : {};
+  const account = buildStoredAccount(authJson, local, existing);
+  if (existingIndex >= 0) {
+    store.accounts[existingIndex] = account;
+  } else {
+    store.accounts.unshift(account);
+  }
+  await saveAccountsStore(store);
+  await refreshUsage('import-account');
+  return getViewSnapshot();
+}
+
+async function switchAccount(id) {
+  const store = await loadAccountsStore();
+  const account = store.accounts.find((item) => item.id === id);
+  if (!account?.authJson) throw new Error('未找到可切换的账号授权快照');
+  const now = new Date().toISOString();
+  await writeJson(AUTH_PATH, account.authJson);
+  account.lastSwitchedAt = now;
+  account.updatedAt = now;
+  await saveAccountsStore(store);
+  await refreshUsage('switch-account');
+  return getViewSnapshot();
+}
+
+async function deleteAccount(id) {
+  const store = await loadAccountsStore();
+  const nextAccounts = store.accounts.filter((account) => account.id !== id);
+  await saveAccountsStore({ version: 1, accounts: nextAccounts });
+  await refreshUsage('delete-account');
+  return getViewSnapshot();
+}
+
 async function fetchJson(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -996,8 +1429,7 @@ async function fetchJson(url, options = {}, timeoutMs = 8000) {
   }
 }
 
-async function fetchWithCodexAuth() {
-  const local = await readLocalCodexAuth();
+async function fetchUsageForLocalAuth(local) {
   if (!local.accessToken || !local.accountId) return {};
   const resetCardsPromise = fetchResetCreditDetails(local);
   for (const url of await resolveUsageUrls()) {
@@ -1042,6 +1474,10 @@ async function fetchWithCodexAuth() {
     }
   }
   return merged;
+}
+
+async function fetchWithCodexAuth() {
+  return fetchUsageForLocalAuth(await readLocalCodexAuth());
 }
 
 function shouldCapture(url) {
@@ -1153,7 +1589,7 @@ function createWebWindow() {
     width: 1120,
     height: 760,
     show: false,
-    title: 'Codex 用量同步',
+    title: 'Codex 工具同步',
     webPreferences: {
       partition: 'persist:official-openai-usage',
       contextIsolation: true,
@@ -1199,7 +1635,8 @@ async function refreshUsageLegacy(reason = 'manual') {
 }
 
 async function refreshUsage(reason = 'manual') {
-  const local = await readLocalCodexAuth().catch(() => ({}));
+  const currentAuthJson = await readJson(AUTH_PATH, null);
+  const local = parseCodexAuth(currentAuthJson);
   const previousTokenUsage = state.snapshot?.tokenUsage;
   const sameAccount = Boolean(local.accountKey && previousTokenUsage?.accountKey === local.accountKey);
   const tokenScopeStartedAt = sameAccount
@@ -1221,7 +1658,9 @@ async function refreshUsage(reason = 'manual') {
   const currentWeeklyResetAt = direct.usageWindows?.oneWeek?.resetAt || (
     sameAccount ? state.snapshot?.usageWindows?.oneWeek?.resetAt : null
   );
-  const tokenUsage = accountTokenUsage || await collectTokenUsageSnapshot({
+  let tokenUsage = accountTokenUsage;
+  if (!tokenUsage?.today && !tokenUsage?.last7d && !tokenUsage?.last30d) {
+    const localEstimate = await collectTokenUsageSnapshot({
       accountKey: local.accountKey,
       userId: local.userId,
       accountId: local.accountId,
@@ -1231,10 +1670,23 @@ async function refreshUsage(reason = 'manual') {
       previousFingerprintVersion: previousTokenUsage?.fingerprintVersion,
       currentWeeklyResetAt
     });
+    tokenUsage = {
+      ...localEstimate,
+      profileIdentity: accountTokenUsage?.profileIdentity || localEstimate.profileIdentity
+    };
+  }
   if (!tokenUsage.source) {
     tokenUsage.source = 'local-estimate';
     tokenUsage.sourceLabel = '\u672c\u5730\u4f30\u7b97';
   }
+  const profileIdentity = tokenUsage.profileIdentity || {};
+  const currentLocal = {
+    ...local,
+    profileIdentity,
+    nickname: profileIdentity.nickname || local.nickname,
+    username: profileIdentity.username || local.username
+  };
+  const localTokenSummary = await collectLocalTokenSummary();
   const hasUsage =
     Number.isFinite(Number(merged.usageRemainingPercent)) ||
     Boolean(merged.usageWindows?.fiveHour) ||
@@ -1247,6 +1699,19 @@ async function refreshUsage(reason = 'manual') {
       : state.snapshot?.sourceStatus || '\u7b49\u5f85\u6355\u83b7\u5b9e\u65f6\u7528\u91cf';
   const syncedAt = new Date().toISOString();
   const resetCards = inferResetCardExpiry(merged.resetCards || []);
+  const accountsStore = await refreshAccountsStore({
+    currentAuthJson,
+    currentLocal,
+    currentUsage: merged,
+    currentTokenUsage: tokenUsage,
+    currentResetCards: resetCards,
+    syncedAt
+  });
+  const currentAccount = accountFromCurrent(currentLocal, merged, tokenUsage, resetCards, syncedAt);
+  const storedAccountViews = accountsStore.accounts.map((account) => accountView(account, currentLocal.accountKey));
+  const accountViews = storedAccountViews.some((account) => account.accountKey === currentLocal.accountKey)
+    ? storedAccountViews
+    : [currentAccount, ...storedAccountViews];
 
   await saveState({
     snapshot: {
@@ -1255,11 +1720,15 @@ async function refreshUsage(reason = 'manual') {
       credits: null,
       resetCards,
       tokenUsage,
+      currentAccount,
+      accounts: accountViews,
+      resetCardsAccountLabel: accountLabel(currentAccount),
+      localTokenSummary,
       lastSyncedAt: syncedAt,
       sourceStatus: statusText,
       obsoleteStatus: null
     }
-  }, ['tokenUsage']);
+  }, ['tokenUsage', 'accounts', 'currentAccount', 'localTokenSummary', 'resetCards']);
   return getViewSnapshot();
 }
 
@@ -1302,6 +1771,33 @@ function positionPanel(open) {
   return { side: panelState.side, orbX: FLOAT_PADDING, panelX: FLOAT_PADDING, orbY: FLOAT_PADDING };
 }
 
+function resizeOpenPanelHeight(contentHeight) {
+  if (!floatWindow || !panelState.open) return null;
+  const [x, y] = floatWindow.getPosition();
+  const display = screen.getDisplayNearestPoint({ x, y });
+  const workArea = display.workArea;
+  const orbOuter = Math.round((Number(config.windowSize) || 116) + FLOAT_PADDING * 2);
+  const openWidth = PANEL_WIDTH + PANEL_GAP + orbOuter + PANEL_EDGE_PADDING;
+  const desiredHeight = Math.max(
+    orbOuter,
+    Math.min(Math.ceil(Number(contentHeight) || PANEL_HEIGHT), workArea.height - PANEL_EDGE_PADDING * 2)
+  );
+  const nextY = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - desiredHeight));
+  floatWindow.setBounds({ x, y: nextY, width: openWidth, height: desiredHeight });
+  if (nextY !== y) panelState.orbY = Math.round(panelState.orbY + (nextY - y));
+  const orbCssX = Math.max(FLOAT_PADDING, Math.min(panelState.orbX - x + FLOAT_PADDING, openWidth - orbOuter + FLOAT_PADDING));
+  const orbCssY = Math.max(FLOAT_PADDING, Math.min(panelState.orbY - nextY + FLOAT_PADDING, desiredHeight - orbOuter + FLOAT_PADDING));
+  const panelCssX = panelState.side === 'right'
+    ? orbCssX + orbOuter + PANEL_GAP
+    : Math.max(FLOAT_PADDING, orbCssX - PANEL_WIDTH - PANEL_GAP);
+  return {
+    side: panelState.side,
+    orbX: orbCssX,
+    panelX: panelCssX,
+    orbY: orbCssY
+  };
+}
+
 function startRefreshTimer() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(() => refreshUsage('timer'), REFRESH_INTERVAL_MS);
@@ -1323,6 +1819,14 @@ app.on('window-all-closed', () => {
 ipcMain.handle('usage:get', () => getViewSnapshot());
 ipcMain.handle('usage:refresh', () => refreshUsage('manual'));
 ipcMain.handle('usage:open-web', () => openWebWindow());
+ipcMain.handle('accounts:import-current', () => importCurrentAccount());
+ipcMain.handle('accounts:switch', (_event, id) => switchAccount(id));
+ipcMain.handle('accounts:delete', (_event, id) => deleteAccount(id));
+ipcMain.handle('local-token-summary:refresh', async () => {
+  const localTokenSummary = await collectLocalTokenSummary();
+  await saveState({ snapshot: { localTokenSummary } }, ['localTokenSummary']);
+  return getViewSnapshot();
+});
 ipcMain.handle('window:set-size', async (_event, size) => {
   const next = Math.max(86, Math.min(Number(size) || config.windowSize, 220));
   config.windowSize = next;
@@ -1346,6 +1850,7 @@ ipcMain.handle('window:move-by', (_event, delta) => {
   }
   return null;
 });
+ipcMain.handle('window:set-panel-height', (_event, height) => resizeOpenPanelHeight(height));
 ipcMain.handle('window:set-detail-open', (_event, open) => positionPanel(open));
 ipcMain.handle('external:open-chatgpt', () => shell.openExternal(APP_URL));
 ipcMain.handle('app:quit', () => app.quit());

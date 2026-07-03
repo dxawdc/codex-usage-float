@@ -3,7 +3,10 @@ const state = {
   size: 116,
   sizeInitialized: false,
   panelOpen: false,
-  dragging: null
+  dragging: null,
+  localRange: 'today',
+  pendingSwitchAccount: null,
+  panelHeightTimer: null
 };
 
 const els = {
@@ -20,23 +23,24 @@ const els = {
   openButton: document.getElementById('openButton'),
   quitButton: document.getElementById('quitButton'),
   resizeGrip: document.getElementById('resizeGrip'),
-  fiveHourUsed: document.getElementById('fiveHourUsed'),
-  fiveHourRemain: document.getElementById('fiveHourRemain'),
-  fiveHourReset: document.getElementById('fiveHourReset'),
-  fiveHourBar: document.getElementById('fiveHourBar'),
-  oneWeekUsed: document.getElementById('oneWeekUsed'),
-  oneWeekRemain: document.getElementById('oneWeekRemain'),
-  oneWeekReset: document.getElementById('oneWeekReset'),
-  oneWeekBar: document.getElementById('oneWeekBar'),
   lastSyncedText: document.getElementById('lastSyncedText'),
-  planText: document.getElementById('planText'),
-  expiresText: document.getElementById('expiresText'),
+  currentAccountText: document.getElementById('currentAccountText'),
+  currentTierPill: document.getElementById('currentTierPill'),
+  importAccountButton: document.getElementById('importAccountButton'),
+  accountsList: document.getElementById('accountsList'),
+  resetCardsTitle: document.getElementById('resetCardsTitle'),
   cardCountText: document.getElementById('cardCountText'),
   resetCards: document.getElementById('resetCards'),
-  tokenSourceText: document.getElementById('tokenSourceText'),
-  token24h: document.getElementById('token24h'),
-  token7d: document.getElementById('token7d'),
-  token30d: document.getElementById('token30d')
+  localInputTokens: document.getElementById('localInputTokens'),
+  localCachedTokens: document.getElementById('localCachedTokens'),
+  localCacheRate: document.getElementById('localCacheRate'),
+  localOutputTokens: document.getElementById('localOutputTokens'),
+  localTokenMeta: document.getElementById('localTokenMeta'),
+  confirmDialog: document.getElementById('confirmDialog'),
+  confirmTitle: document.getElementById('confirmTitle'),
+  confirmBody: document.getElementById('confirmBody'),
+  cancelSwitchButton: document.getElementById('cancelSwitchButton'),
+  confirmSwitchButton: document.getElementById('confirmSwitchButton')
 };
 
 function clamp(value, min, max) {
@@ -70,6 +74,7 @@ function formatNumber(value) {
 function formatTokens(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '--';
+  if (number >= 1000000000) return `${(number / 1000000000).toFixed(2)}B`;
   if (number >= 1000000) return `${(number / 1000000).toFixed(2)}M`;
   if (number >= 1000) return `${(number / 1000).toFixed(1)}K`;
   return formatNumber(number);
@@ -97,21 +102,34 @@ function accentForRemaining(percent) {
   return '#4ade80';
 }
 
-function usageWindow(data, key) {
-  return data?.usageWindows?.[key] || null;
+function accountDisplayName(account) {
+  if (!account) return '--';
+  const nickname = account.nickname || account.label?.split(' - ')[0] || 'Codex';
+  const username = account.username || account.label?.split(' - ').slice(1).join(' - ') || '未知账号';
+  return `${nickname} ${username}`;
 }
 
-function renderUsageCard(window, usedEl, remainEl, resetEl, barEl) {
-  const used = Number(window?.usedPercent);
-  const remaining = Number(window?.remainingPercent);
-  const safeRemaining = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
-  const accent = accentForRemaining(remaining);
-  usedEl.textContent = formatPercent(remaining);
-  usedEl.style.color = accent;
-  remainEl.textContent = formatPercent(used);
-  resetEl.textContent = formatMinute(window?.resetAt);
-  barEl.style.width = `${safeRemaining}%`;
-  barEl.style.background = `linear-gradient(90deg, ${accent}, color-mix(in srgb, ${accent} 70%, #ffffff 30%))`;
+function accountNameParts(account) {
+  if (!account) return { nickname: '--', username: '--' };
+  const nickname = account.nickname || accountDisplayName(account).split(/\s+/)[0] || 'Codex';
+  const username = account.username || accountDisplayName(account).split(/\s+/).slice(1).join(' ') || '未知账号';
+  return { nickname, username };
+}
+
+function usageWindow(account, key) {
+  return account?.usageWindows?.[key] || account?.usage?.usageWindows?.[key] || null;
+}
+
+function tokenTotal(tokenUsage, key) {
+  const value = key === 'today'
+    ? tokenUsage?.today || tokenUsage?.last24h
+    : tokenUsage?.[key];
+  return value?.totalTokens;
+}
+
+function tokenUsageHint(tokenUsage) {
+  if (tokenUsage?.source === 'account-profile') return '';
+  return '';
 }
 
 function normalizeResetCards(cards = []) {
@@ -123,15 +141,122 @@ function normalizeResetCards(cards = []) {
   return rows;
 }
 
-function renderCards(cards = []) {
+function createMiniQuota(label, window) {
+  const remaining = Number(window?.remainingPercent);
+  const safeRemaining = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
+  const accent = accentForRemaining(remaining);
+  const quota = document.createElement('div');
+  quota.className = 'mini-quota';
+  quota.innerHTML = `
+    <div class="mini-quota-head">
+      <span>${label}</span>
+      <div class="mini-quota-value">
+        <strong style="color:${accent}">${formatPercent(remaining)}</strong>
+        <span>重置 ${formatMinute(window?.resetAt)}</span>
+      </div>
+    </div>
+    <div class="mini-meter"><div style="width:${safeRemaining}%;background:${accent}"></div></div>
+  `;
+  return quota;
+}
+
+function renderAccounts(accounts = []) {
+  els.accountsList.replaceChildren();
+  if (!accounts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = '还没有导入账号，先导入当前账号';
+    els.accountsList.appendChild(empty);
+    return;
+  }
+
+  for (const account of accounts) {
+    const row = document.createElement('article');
+    row.className = `account-card${account.isCurrent ? ' is-current' : ''}`;
+    const { nickname, username } = accountNameParts(account);
+    const fiveHour = usageWindow(account, 'fiveHour');
+    const oneWeek = usageWindow(account, 'oneWeek');
+    const today = formatTokens(tokenTotal(account.tokenUsage, 'today'));
+    const last7d = formatTokens(tokenTotal(account.tokenUsage, 'last7d'));
+    const last30d = formatTokens(tokenTotal(account.tokenUsage, 'last30d'));
+
+    const main = document.createElement('div');
+    main.className = 'account-main';
+    const header = document.createElement('div');
+    header.className = 'account-card-head';
+    const title = document.createElement('div');
+    title.className = 'account-title';
+    const nameLine = document.createElement('div');
+    nameLine.className = 'account-title-line';
+
+    const nicknameNode = document.createElement('strong');
+    nicknameNode.className = 'account-name-part';
+    nicknameNode.textContent = nickname;
+    const usernameNode = document.createElement('strong');
+    usernameNode.className = 'account-username-part';
+    usernameNode.textContent = username;
+    const planNode = document.createElement('span');
+    planNode.className = 'account-plan-inline';
+    planNode.textContent = `${formatTier(account.planTier)} · 到期 ${formatMinute(account.membershipExpiresAt)}`;
+
+    nameLine.append(nicknameNode, usernameNode, planNode);
+    if (account.isCurrent) {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'account-active-badge';
+      activeBadge.textContent = '使用中';
+      nameLine.appendChild(activeBadge);
+    }
+    title.appendChild(nameLine);
+    header.appendChild(title);
+    const headerActions = document.createElement('div');
+    headerActions.className = 'account-card-actions';
+    const button = document.createElement('button');
+    button.className = account.isCurrent ? 'mini-button current' : 'mini-button';
+    button.textContent = account.isCurrent ? '当前账号' : '切换';
+    button.disabled = Boolean(account.isCurrent);
+    if (!account.isCurrent) {
+      button.addEventListener('click', () => openSwitchDialog(account));
+    }
+    headerActions.appendChild(button);
+    if (!account.isCurrent && account.id !== 'current') {
+      const deleteButton = document.createElement('button');
+      deleteButton.className = 'icon-button small';
+      deleteButton.title = '删除账号记录';
+      deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+      deleteButton.addEventListener('click', async () => {
+        state.snapshot = await window.codexUsage.deleteAccount(account.id);
+        render();
+      });
+      headerActions.appendChild(deleteButton);
+    }
+    header.appendChild(headerActions);
+
+    const quotas = document.createElement('div');
+    quotas.className = 'account-quotas';
+    quotas.append(createMiniQuota('5h', fiveHour), createMiniQuota('1周', oneWeek));
+
+    const tokenLine = document.createElement('p');
+    tokenLine.className = 'account-token-line';
+    tokenLine.textContent = `Token 今日 ${today} · 7天 ${last7d} · 30天 ${last30d}${tokenUsageHint(account.tokenUsage)}`;
+    if (account.usageError) tokenLine.textContent += ` · ${account.usageError}`;
+
+    main.append(header, quotas, tokenLine);
+    row.appendChild(main);
+
+    els.accountsList.appendChild(row);
+  }
+}
+
+function renderCards(cards = [], accountLabel = '--') {
   const available = normalizeResetCards(cards);
   els.resetCards.replaceChildren();
   const availableCount = cards.reduce((total, card) => total + Math.max(0, Number(card.count) || 0), 0);
+  els.resetCardsTitle.textContent = `可用重置卡 · ${accountLabel || '--'}`;
   els.cardCountText.textContent = `${formatNumber(availableCount)} 张`;
   if (!available.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = '当前没有可用重置卡';
+    empty.textContent = '当前账号没有可用重置卡';
     els.resetCards.appendChild(empty);
     return;
   }
@@ -141,39 +266,41 @@ function renderCards(cards = []) {
     const title = document.createElement('strong');
     title.textContent = `#${index + 1} ${card.label || '重置卡'}`;
     const meta = document.createElement('span');
-    const time = card.expiresAt
+    meta.textContent = card.expiresAt
       ? formatMinute(card.expiresAt)
       : card.resetAt
         ? formatMinute(card.resetAt)
         : '有效期未知';
-    meta.textContent = time;
     row.append(title, meta);
     els.resetCards.appendChild(row);
   });
 }
 
-function renderTokens(tokenUsage) {
-  if (!tokenUsage) {
-    els.tokenSourceText.textContent = '--';
-    els.token24h.textContent = '--';
-    els.token7d.textContent = '--';
-    els.token30d.textContent = '--';
-    return;
-  }
-  const source = tokenUsage.sourceLabel || '当前账号';
-  const detail = tokenUsage.source === 'account-profile'
-    ? tokenUsage.mayBeDelayed ? ' · 延迟更新' : ''
-    : ` · ${formatNumber(tokenUsage.eventCount || 0)} 条`;
-  els.tokenSourceText.textContent = `${source}${detail}`;
-  els.token24h.textContent = formatTokens((tokenUsage.today || tokenUsage.last24h)?.totalTokens);
-  els.token7d.textContent = formatTokens(tokenUsage.last7d?.totalTokens);
-  els.token30d.textContent = formatTokens(tokenUsage.last30d?.totalTokens);
+function localWindow(summary) {
+  return summary?.windows?.[state.localRange] || null;
+}
+
+function renderLocalSummary(summary) {
+  const current = localWindow(summary);
+  els.localInputTokens.textContent = formatTokens(current?.inputTokens);
+  els.localCachedTokens.textContent = formatTokens(current?.cachedInputTokens);
+  els.localCacheRate.textContent = Number.isFinite(Number(current?.cacheRate)) ? formatPercent(current.cacheRate) : '--';
+  els.localOutputTokens.textContent = formatTokens(current?.outputTokens);
+  els.localTokenMeta.textContent = [
+    `推理输出 ${formatTokens(current?.reasoningOutputTokens)}`,
+    `总计 ${formatTokens(current?.totalTokens)}`,
+    `${formatNumber(summary?.sourceFileCount || 0)} 个文件`,
+    `${formatNumber(current?.eventCount || 0)} 条`
+  ].join(' · ');
+  document.querySelectorAll('[data-local-range]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.localRange === state.localRange);
+  });
 }
 
 function render() {
   const data = state.snapshot || {};
-  const fiveHour = usageWindow(data, 'fiveHour');
-  const oneWeek = usageWindow(data, 'oneWeek');
+  const currentAccount = data.currentAccount || data.accounts?.find((account) => account.isCurrent) || null;
+  const fiveHour = usageWindow(currentAccount, 'fiveHour') || data.usageWindows?.fiveHour;
   if (!state.sizeInitialized && Number.isFinite(Number(data.windowSize))) {
     state.size = Number(data.windowSize);
     state.sizeInitialized = true;
@@ -182,25 +309,25 @@ function render() {
   const remaining = Number(fiveHour?.remainingPercent);
   const remainingSafe = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
   const accent = accentForRemaining(remaining);
+  const sourceStatus = data.sourceStatus === '已同步 Codex 用量' ? '已同步' : data.sourceStatus || '等待同步';
 
   els.root.style.setProperty('--accent', accent);
   els.root.style.setProperty('--orb-size', `${state.size}px`);
   els.ringFill.style.setProperty('--angle', `${remainingSafe * 3.6}deg`);
-  els.tierText.textContent = formatTier(data.planTier);
+  els.tierText.textContent = formatTier(currentAccount?.planTier || data.planTier);
   els.percentText.textContent = formatPercent(remaining);
   els.percentText.style.color = accent;
   els.orbCaption.textContent = '5h 剩余';
-  const sourceStatus = data.sourceStatus === '已同步 Codex 用量' ? '已同步' : data.sourceStatus || '等待同步';
   els.lastSyncedText.textContent = data.lastSyncedAt
     ? `刷新 ${formatMinute(data.lastSyncedAt)} · ${sourceStatus}`
     : sourceStatus;
-  renderUsageCard(fiveHour, els.fiveHourUsed, els.fiveHourRemain, els.fiveHourReset, els.fiveHourBar);
-  renderUsageCard(oneWeek, els.oneWeekUsed, els.oneWeekRemain, els.oneWeekReset, els.oneWeekBar);
+  els.currentAccountText.textContent = `当前：${accountDisplayName(currentAccount)}`;
+  els.currentTierPill.textContent = formatTier(currentAccount?.planTier || data.planTier);
 
-  els.planText.textContent = formatTier(data.planTier);
-  els.expiresText.textContent = formatMinute(data.membershipExpiresAt);
-  renderCards(data.resetCards || []);
-  renderTokens(data.tokenUsage);
+  renderAccounts(data.accounts || (currentAccount ? [currentAccount] : []));
+  renderCards(data.resetCards || currentAccount?.resetCards || [], accountDisplayName(currentAccount) || data.resetCardsAccountLabel);
+  renderLocalSummary(data.localTokenSummary);
+  schedulePanelHeightResize();
 }
 
 function applyLayout(layout) {
@@ -210,6 +337,18 @@ function applyLayout(layout) {
   els.root.style.setProperty('--panel-x', `${layout.panelX}px`);
   document.body.classList.toggle('panel-left', layout.side === 'left');
   document.body.classList.toggle('panel-right', layout.side !== 'left');
+}
+
+function schedulePanelHeightResize() {
+  if (!state.panelOpen || els.panel.hidden) return;
+  clearTimeout(state.panelHeightTimer);
+  state.panelHeightTimer = setTimeout(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (!state.panelOpen || els.panel.hidden) return;
+    const desiredHeight = Math.ceil(els.panel.offsetTop + els.panel.scrollHeight + 8);
+    const layout = await window.codexUsage.setPanelHeight(desiredHeight);
+    applyLayout(layout);
+  }, 80);
 }
 
 async function load() {
@@ -227,6 +366,7 @@ async function setPanelOpen(open) {
   if (open) {
     state.snapshot = await window.codexUsage.getSnapshot();
     render();
+    schedulePanelHeightResize();
   }
 }
 
@@ -238,6 +378,18 @@ async function refresh() {
   } finally {
     els.refreshButton.classList.remove('is-loading');
   }
+}
+
+function openSwitchDialog(account) {
+  state.pendingSwitchAccount = account;
+  els.confirmTitle.textContent = `切换到 ${account.nickname || account.username || '该账号'}？`;
+  els.confirmBody.textContent = '会替换当前 auth.json，已运行的 Codex 会话可能需要新开 turn 或重启。';
+  els.confirmDialog.hidden = false;
+}
+
+function closeSwitchDialog() {
+  state.pendingSwitchAccount = null;
+  els.confirmDialog.hidden = true;
 }
 
 function startDrag(event, element) {
@@ -327,9 +479,39 @@ els.resizeGrip.addEventListener('pointerup', (event) => {
   commitSize(state.size);
 });
 
+document.querySelectorAll('[data-local-range]').forEach((button) => {
+  button.addEventListener('click', () => {
+    state.localRange = button.dataset.localRange;
+    renderLocalSummary(state.snapshot?.localTokenSummary);
+    schedulePanelHeightResize();
+  });
+});
+
 els.closePanel.addEventListener('click', () => setPanelOpen(false));
 els.scrim.addEventListener('click', () => setPanelOpen(false));
 els.refreshButton.addEventListener('click', refresh);
+els.importAccountButton.addEventListener('click', async () => {
+  els.importAccountButton.disabled = true;
+  try {
+    state.snapshot = await window.codexUsage.importCurrentAccount();
+    render();
+  } finally {
+    els.importAccountButton.disabled = false;
+  }
+});
+els.cancelSwitchButton.addEventListener('click', closeSwitchDialog);
+els.confirmSwitchButton.addEventListener('click', async () => {
+  const account = state.pendingSwitchAccount;
+  if (!account) return;
+  els.confirmSwitchButton.disabled = true;
+  try {
+    state.snapshot = await window.codexUsage.switchAccount(account.id);
+    closeSwitchDialog();
+    render();
+  } finally {
+    els.confirmSwitchButton.disabled = false;
+  }
+});
 els.openButton.addEventListener('click', () => window.codexUsage.openWeb());
 els.quitButton.addEventListener('click', () => window.codexUsage.quit());
 window.codexUsage.onSnapshot((value) => {

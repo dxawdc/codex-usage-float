@@ -3,18 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Codex 用量</title>
+    <title>Codex 工具</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main id="app">
-      <section id="orb" class="orb" aria-label="Codex 用量悬浮球">
+      <section id="orb" class="orb" aria-label="Codex 工具悬浮球">
         <div class="ring">
           <div id="ringFill" class="ring-fill"></div>
           <div class="orb-core">
             <span id="tierText" class="tier">--</span>
             <strong id="percentText">--%</strong>
-            <span id="orbCaption" class="caption">5h 已用</span>
+            <span id="orbCaption" class="caption">5h 剩余</span>
           </div>
         </div>
         <div id="resizeGrip" class="resize-grip" aria-hidden="true"></div>
@@ -24,10 +24,15 @@
 
       <aside id="panel" class="panel" hidden>
         <header class="panel-head">
-          <div>
+          <div class="title-stack">
             <div class="title-row">
-              <h1>Codex 用量</h1>
+              <h1>Codex 工具</h1>
               <span id="lastSyncedText">--</span>
+            </div>
+            <div class="current-strip">
+              <span class="dot"></span>
+              <span id="currentAccountText">当前：--</span>
+              <strong id="currentTierPill">--</strong>
             </div>
           </div>
           <div class="head-actions">
@@ -41,83 +46,57 @@
         </header>
 
         <div class="panel-content">
-        <section class="quota-grid" aria-label="额度窗口">
-          <article class="quota-card">
-            <div class="quota-topline">
-              <span>5 小时窗口剩余</span>
-              <strong id="fiveHourUsed">--%</strong>
+          <section class="accounts-section">
+            <div class="section-title">
+              <div class="accounts-title-inline">
+                <h2>账号信息</h2>
+                <span>手动切换，仅替换 auth.json · 账号数据存在延迟</span>
+              </div>
+              <button id="importAccountButton" class="mini-button">+ 导入当前账号</button>
             </div>
-            <div class="meter"><div id="fiveHourBar"></div></div>
-            <dl class="quota-meta">
+            <div id="accountsList" class="accounts-list"></div>
+          </section>
+
+          <section class="cards-section">
+            <div class="section-title">
+              <h2 id="resetCardsTitle">可用重置卡 · --</h2>
+              <span id="cardCountText">0 张</span>
+            </div>
+            <div id="resetCards" class="card-list"></div>
+          </section>
+
+          <section class="local-section">
+            <div class="section-title">
+              <div class="local-title-inline">
+                <h2>本地日志汇总</h2>
+                <span>所有会话 · 不拆分账号</span>
+              </div>
+              <div class="segmented" role="tablist" aria-label="本地日志时间范围">
+                <button data-local-range="today" class="is-active">今日</button>
+                <button data-local-range="last7d">7天</button>
+                <button data-local-range="last30d">30天</button>
+              </div>
+            </div>
+            <dl class="local-grid">
               <div>
-                <dt>已用</dt>
-                <dd id="fiveHourRemain">--%</dd>
+                <dt>输入</dt>
+                <dd id="localInputTokens">--</dd>
               </div>
               <div>
-                <dt>重置</dt>
-                <dd id="fiveHourReset">--</dd>
+                <dt>缓存输入</dt>
+                <dd id="localCachedTokens">--</dd>
+              </div>
+              <div>
+                <dt>缓存率</dt>
+                <dd id="localCacheRate">--</dd>
+              </div>
+              <div>
+                <dt>输出</dt>
+                <dd id="localOutputTokens">--</dd>
               </div>
             </dl>
-          </article>
-
-          <article class="quota-card">
-            <div class="quota-topline">
-              <span>1 周窗口剩余</span>
-              <strong id="oneWeekUsed">--%</strong>
-            </div>
-            <div class="meter"><div id="oneWeekBar"></div></div>
-            <dl class="quota-meta">
-              <div>
-                <dt>已用</dt>
-                <dd id="oneWeekRemain">--%</dd>
-              </div>
-              <div>
-                <dt>重置</dt>
-                <dd id="oneWeekReset">--</dd>
-              </div>
-            </dl>
-          </article>
-        </section>
-
-        <dl class="account-grid">
-          <div>
-            <dt>会员</dt>
-            <dd id="planText">--</dd>
-          </div>
-          <div>
-            <dt>会员到期</dt>
-            <dd id="expiresText">--</dd>
-          </div>
-        </dl>
-
-        <section class="token-section">
-          <div class="section-title">
-            <h2>Token 使用量</h2>
-            <span id="tokenSourceText">--</span>
-          </div>
-          <dl class="token-grid">
-            <div>
-              <dt>今日</dt>
-              <dd id="token24h">--</dd>
-            </div>
-            <div>
-              <dt>7 天</dt>
-              <dd id="token7d">--</dd>
-            </div>
-            <div>
-              <dt>30 天</dt>
-              <dd id="token30d">--</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="cards-section">
-          <div class="section-title">
-            <h2>可用重置卡</h2>
-            <span id="cardCountText">0 张</span>
-          </div>
-          <div id="resetCards" class="card-list"></div>
-        </section>
+            <p id="localTokenMeta" class="meta-line">--</p>
+          </section>
         </div>
 
         <footer class="actions">
@@ -130,6 +109,17 @@
             退出
           </button>
         </footer>
+
+        <div id="confirmDialog" class="confirm-backdrop" hidden>
+          <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+            <h2 id="confirmTitle">切换账号？</h2>
+            <p id="confirmBody">会替换当前 auth.json，已运行的 Codex 会话可能需要新开 turn 或重启。</p>
+            <div class="confirm-actions">
+              <button id="cancelSwitchButton" class="text-button ghost">取消</button>
+              <button id="confirmSwitchButton" class="text-button danger">确认切换</button>
+            </div>
+          </section>
+        </div>
       </aside>
     </main>
     <script src="./app.js"></script>
