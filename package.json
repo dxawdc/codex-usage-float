@@ -15,7 +15,7 @@
     "usage",
     "floating-window"
   ],
-  "author": "Codex",
+  "author": "可以叫我才哥",
   "license": "MIT",
   "devDependencies": {
     "electron": "^38.0.0",

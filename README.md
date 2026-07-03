@@ -1,6 +1,7 @@
 <div align="center">
   <h1>Codex Usage Float</h1>
   <p><strong>Codex 多账号用量、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
+  <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
     <img src="https://img.shields.io/badge/version-v1.0.1-2f81f7" alt="version v1.0.1" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
