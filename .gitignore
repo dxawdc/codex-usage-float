@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-*/
+docs/article/
 
 *.log
 npm-debug.log*
