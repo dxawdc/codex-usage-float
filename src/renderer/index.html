@@ -69,7 +69,7 @@
             <div class="section-title">
               <div class="local-title-inline">
                 <h2>本地日志汇总</h2>
-                <span>所有会话 · 不拆分账号</span>
+                <span id="localSummarySubtitle">所有会话 · 不拆分账号 · 总计 --</span>
               </div>
               <div class="segmented" role="tablist" aria-label="本地日志时间范围">
                 <button data-local-range="today" class="is-active">今日</button>
@@ -80,7 +80,7 @@
             <dl class="local-grid">
               <div>
                 <dt>输入</dt>
-                <dd id="localInputTokens">--</dd>
+                <dd class="token-cost-value"><span id="localInputTokens">--</span><small id="localInputCost">--</small></dd>
               </div>
               <div>
                 <dt>缓存输入</dt>
@@ -92,7 +92,7 @@
               </div>
               <div>
                 <dt>输出</dt>
-                <dd id="localOutputTokens">--</dd>
+                <dd class="token-cost-value"><span id="localOutputTokens">--</span><small id="localOutputCost">--</small></dd>
               </div>
             </dl>
             <p id="localTokenMeta" class="meta-line">--</p>

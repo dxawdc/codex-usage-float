@@ -31,10 +31,13 @@ const els = {
   resetCardsTitle: document.getElementById('resetCardsTitle'),
   cardCountText: document.getElementById('cardCountText'),
   resetCards: document.getElementById('resetCards'),
+  localSummarySubtitle: document.getElementById('localSummarySubtitle'),
   localInputTokens: document.getElementById('localInputTokens'),
   localCachedTokens: document.getElementById('localCachedTokens'),
   localCacheRate: document.getElementById('localCacheRate'),
   localOutputTokens: document.getElementById('localOutputTokens'),
+  localInputCost: document.getElementById('localInputCost'),
+  localOutputCost: document.getElementById('localOutputCost'),
   localTokenMeta: document.getElementById('localTokenMeta'),
   confirmDialog: document.getElementById('confirmDialog'),
   confirmTitle: document.getElementById('confirmTitle'),
@@ -42,6 +45,12 @@ const els = {
   cancelSwitchButton: document.getElementById('cancelSwitchButton'),
   confirmSwitchButton: document.getElementById('confirmSwitchButton')
 };
+
+const GPT_5_5_STANDARD_PRICE_PER_MILLION = Object.freeze({
+  input: 5,
+  cachedInput: 0.5,
+  output: 30
+});
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -78,6 +87,33 @@ function formatTokens(value) {
   if (number >= 1000000) return `${(number / 1000000).toFixed(2)}M`;
   if (number >= 1000) return `${(number / 1000).toFixed(1)}K`;
   return formatNumber(number);
+}
+
+function formatUsdEstimate(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '--';
+  const fractionDigits = number === 0 ? 2 : number < 0.01 ? 4 : number < 1 ? 3 : 2;
+  const amount = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
+  }).format(number);
+  return `≈ ${amount}`;
+}
+
+function estimateGpt55Cost(window) {
+  if (!window) return null;
+  const inputTokens = Math.max(0, Number(window.inputTokens) || 0);
+  const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(window.cachedInputTokens) || 0));
+  const outputTokens = Math.max(0, Number(window.outputTokens) || 0);
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const input = (
+    uncachedInputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.input +
+    cachedInputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.cachedInput
+  ) / 1000000;
+  const output = outputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.output / 1000000;
+  return { input, output, total: input + output };
 }
 
 function formatMinute(value) {
@@ -282,10 +318,14 @@ function localWindow(summary) {
 
 function renderLocalSummary(summary) {
   const current = localWindow(summary);
+  const cost = estimateGpt55Cost(current);
   els.localInputTokens.textContent = formatTokens(current?.inputTokens);
   els.localCachedTokens.textContent = formatTokens(current?.cachedInputTokens);
   els.localCacheRate.textContent = Number.isFinite(Number(current?.cacheRate)) ? formatPercent(current.cacheRate) : '--';
   els.localOutputTokens.textContent = formatTokens(current?.outputTokens);
+  els.localInputCost.textContent = formatUsdEstimate(cost?.input);
+  els.localOutputCost.textContent = formatUsdEstimate(cost?.output);
+  els.localSummarySubtitle.textContent = `所有会话 · 不拆分账号 · 总计 ${formatUsdEstimate(cost?.total)}`;
   els.localTokenMeta.textContent = [
     `推理输出 ${formatTokens(current?.reasoningOutputTokens)}`,
     `总计 ${formatTokens(current?.totalTokens)}`,

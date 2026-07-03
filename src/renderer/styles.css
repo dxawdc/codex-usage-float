@@ -654,13 +654,29 @@ svg {
 
 .local-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.3fr 0.9fr 0.65fr 1.15fr;
   gap: 8px;
 }
 
 .local-grid div {
   min-width: 0;
   padding: 9px 10px;
+}
+
+.token-cost-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.token-cost-value small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 620;
+  text-overflow: ellipsis;
 }
 
 dt {
