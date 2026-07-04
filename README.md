@@ -10,7 +10,7 @@
   </p>
 </div>
 
-一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总。
+一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持深色/浅色主题和自定义 Token 定价。
 
 ## 下载安装
 
@@ -23,7 +23,7 @@
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
-| `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `34DC1A9DD312EA8B601C83D13D81A6639EC3485328197298CA4079E5BCA55899` |
+| `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `E56DB820BF47D505F43A9C54084F130D405A6E06F3693C86F5EEBA83530A4224` |
 | `v1.0.1` | `CodexUsageFloat-1.0.1.exe` | `30FD07B2F65A29E903164B7DB7CE71498EBA2E84D78C0ABF9CE8AB9A22DF665A` |
 
 PowerShell 校验示例：
@@ -69,11 +69,11 @@ Get-FileHash .\CodexUsageFloat-1.0.2.exe -Algorithm SHA256
       <sub>账号切换确认</sub>
     </td>
     <td width="33%" align="center">
-      <a href="docs/screenshots/local-token-summary.png">
-        <img src="docs/screenshots/local-token-summary.png" alt="本地 Token 汇总" width="100%" />
+      <a href="docs/screenshots/pricing-settings-light.png">
+        <img src="docs/screenshots/pricing-settings-light.png" alt="浅色主题与定价设置" width="100%" />
       </a>
       <br />
-      <sub>本地 Token 汇总</sub>
+      <sub>浅色主题与定价设置</sub>
     </td>
   </tr>
 </table>
@@ -168,9 +168,9 @@ npm run dev
 
 本地日志汇总固定统计所有会话，不拆分账号。多个账号共用同一个 `~/.codex` 时，本地历史文件通常缺少可靠账号标识，因此不应将这部分数据解释为某个账号的精确账单。
 
-### GPT-5.5 费用估算
+### GPT-5.5 费用估算与自定义定价
 
-费用估算采用 [OpenAI GPT-5.5 官方标准 API 价格](https://developers.openai.com/api/docs/models/gpt-5.5)，每 100 万 Token 的输入、缓存输入、输出价格分别为 `$5.00`、`$0.50`、`$30.00`：
+费用估算默认采用 [OpenAI GPT-5.5 官方标准 API 价格](https://developers.openai.com/api/docs/models/gpt-5.5)，每 100 万 Token 的输入、缓存输入、输出价格分别为 `$5.00`、`$0.50`、`$30.00`。可通过面板顶部的“定价设置”修改三项单价，保存后会立即重新计算本地汇总中的估算金额：
 
 ```text
 输入费用 = (输入 - 缓存输入) / 1,000,000 × $5.00
@@ -202,9 +202,11 @@ npm run dev
 ~/.codex/auth.json
 %APPDATA%/codex-usage-float/accounts.json
 %APPDATA%/codex-usage-float/usage-state.json
+%APPDATA%/codex-usage-float/Local Storage/
 ```
 
 - `accounts.json` 保存已导入账号的认证快照，以便后续切换；该文件包含敏感登录信息，请勿上传、分享或纳入备份公开范围。
+- 主题与自定义 Token 单价保存在 Electron 的本地存储目录中，只在当前 Windows 用户下生效，不会上传到远端。
 - 当前版本未对账号快照额外加密，安全边界依赖 Windows 用户目录权限。请只在可信个人设备上使用。
 - 应用不会把令牌写入调试日志、README、截图或 Git 仓库。
 - 切换账号时先写入临时文件，再替换 `auth.json`，降低写入中断导致文件损坏的风险。
@@ -266,8 +268,8 @@ docs/screenshots/        README 示例截图
 - Codex / ChatGPT 内部接口并非稳定公开契约，字段或访问规则变化可能导致部分信息暂时不可用。
 - 账号 Token 接口可能延迟，且通常只有总量；输入、输出、缓存输入拆分主要来自本地日志。
 - 本地日志无法可靠拆分共享 `~/.codex` 的多个账号。
-- GPT-5.5 费用只按标准 API 基础费率估算，不能替代实际 API 或订阅账单。
-- 替换 `auth.json` 不会刷新已运行进程的内存认证状态，账号切换后通常需要重启 Codex。
+- GPT-5.5 费用默认按标准 API 基础费率估算；即使手动调整单价，也只能作为近似参考，不能替代实际 API 或订阅账单。
+- 替换 `auth.json` 不会刷新已运行进程的内存认证状态。手动切换后需要自行重启 Codex；自动切换会尝试重启，但可能受安装路径、进程权限等因素影响而失败。
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 致谢与参考
