@@ -3,7 +3,7 @@
   <p><strong>Codex 多账号用量、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <img src="https://img.shields.io/badge/version-v1.0.1-2f81f7" alt="version v1.0.1" />
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.2-2f81f7" alt="release v1.0.2" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-38-47848f" alt="Electron 38" />
@@ -11,6 +11,44 @@
 </div>
 
 一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总。
+
+## 下载安装
+
+无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
+
+- **推荐下载**：[CodexUsageFloat v1.0.2](https://github.com/dxawdc/codex-usage-float/releases/latest/download/CodexUsageFloat-1.0.2.exe)
+- **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
+
+下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
+
+| 版本 | 文件 | SHA-256 |
+| --- | --- | --- |
+| `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `34DC1A9DD312EA8B601C83D13D81A6639EC3485328197298CA4079E5BCA55899` |
+| `v1.0.1` | `CodexUsageFloat-1.0.1.exe` | `30FD07B2F65A29E903164B7DB7CE71498EBA2E84D78C0ABF9CE8AB9A22DF665A` |
+
+PowerShell 校验示例：
+
+```powershell
+Get-FileHash .\CodexUsageFloat-1.0.2.exe -Algorithm SHA256
+```
+
+## 版本更新记录
+
+### v1.0.2 - 2026-07-04
+
+- 新增深色/浅色主题切换，并完整适配主面板、弹窗、悬浮球和底部操作区。
+- 新增 Token 定价设置，可自定义输入、缓存输入和输出单价，本地保存后实时重算费用估值。
+- 优化账号切换流程，提供取消、手动切换和自动切换三种操作；增加切换中、成功和失败反馈。
+- 自动切换可在替换 `auth.json` 后检测并尝试重启正在运行的 Codex；手动切换会给出明确重启提示。
+- 优化重复导入反馈和账号库刷新逻辑，降低切换后只显示当前账号的概率。
+- 新增“关于工具”入口，调整底部操作布局，并清理未使用的旧代码。
+
+### v1.0.1 - 2026-07-03
+
+- 首个公开发布版本。
+- 支持多账号导入、用量看板、5 小时和 1 周剩余额度、会员及重置卡信息。
+- 支持本地会话 Token 的今日、7 天和 30 天分类汇总，以及 GPT-5.5 标准 API 费用估算。
+- 支持通过替换 `~/.codex/auth.json` 手动切换已导入账号。
 
 ## 界面预览
 
@@ -46,11 +84,13 @@
 
 - **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比。
 - **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、5 小时额度和 1 周额度。
-- **手动账号切换**：经过确认后，用目标账号快照原子替换 `~/.codex/auth.json`；不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
+- **可控账号切换**：提供手动切换与自动切换；均会原子替换 `~/.codex/auth.json`，自动切换还会尝试重启已运行的 Codex。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天和 30 天总 Token。该数据来自账号接口，可能存在同步延迟。
 - **本地日志汇总**：按今日、7 天和 30 天切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数，并按 GPT-5.5 标准 API 费率估算输入、输出及总费用。
 - **重置卡列表**：显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
+- **主题与定价设置**：支持深色/浅色主题；可在设置中维护输入、缓存输入和输出单价，适应后续价格调整。
+- **过程反馈**：导入已有账号时明确提示已更新；账号切换展示进行中、成功或失败状态。
 - **便携打包**：使用 `electron-builder` 生成 Windows portable EXE，无需安装程序。
 
 ## 快速开始
@@ -83,11 +123,11 @@ npm run dev
 2. 打开本工具，点击“导入当前账号”。
 3. 在 Codex 中退出并登录另一个账号。
 4. 回到本工具，再次点击“导入当前账号”。
-5. 后续可在账号卡片中点击“切换”，确认后替换当前 `auth.json`。
+5. 后续可在账号卡片中点击“切换”，选择“手动切换”或“自动切换”。
 
 账号以登录令牌中的稳定用户或账号标识去重。重复导入同一账号时会更新已有快照、个人资料和用量，不会新增重复条目。
 
-切换完成后，已经运行的 Codex 进程可能仍缓存旧认证状态。建议完全关闭并重新启动 Codex；如果仍无法使用，需要通过官方界面重新登录。此工具不模拟官方登录流程，只负责切换本机已有的认证快照。
+手动切换完成后，需要自行完全关闭并重新启动 Codex。自动切换会在替换认证快照后检测并尝试重启 Codex，但受安装方式、进程权限和程序路径影响，无法保证在所有环境都成功；失败时请手动重启。如果仍无法使用，需要通过官方界面重新登录。此工具不模拟官方登录流程，只负责切换本机已有的认证快照。
 
 ## 数据来源与口径
 
@@ -176,8 +216,12 @@ npm run dev
 - 鼠标滚轮：调整悬浮球大小。
 - 刷新按钮：刷新已保存账号、当前账号重置卡和本地日志汇总。
 - 导入当前账号：读取当前 `auth.json` 并保存或更新账号快照。
-- 切换：确认后替换当前 `auth.json`。
+- 手动切换：替换当前 `auth.json`，完成后由用户重启 Codex。
+- 自动切换：替换当前 `auth.json`，并尝试检测、关闭和重新启动 Codex。
+- 定价设置：调整本地 Token 费用估算使用的输入、缓存输入和输出单价。
+- 主题切换：在深色与浅色界面之间切换，设置保存在本机。
 - 删除：从工具账号库中移除非当前账号，不会删除 Codex 会话文件。
+- 关于工具：打开本项目 GitHub 仓库。
 - 打开网页：打开 ChatGPT / Codex 页面。
 - 退出：关闭应用。
 
@@ -192,7 +236,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-1.0.1.exe
+CodexUsageFloat-1.0.2.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：

@@ -6,6 +6,9 @@ const state = {
   dragging: null,
   localRange: 'today',
   pendingSwitchAccount: null,
+  switchPhase: 'idle',
+  theme: localStorage.getItem('codexUsageTheme') || 'dark',
+  pricing: null,
   panelHeightTimer: null
 };
 
@@ -19,7 +22,9 @@ const els = {
   percentText: document.getElementById('percentText'),
   orbCaption: document.getElementById('orbCaption'),
   closePanel: document.getElementById('closePanel'),
+  pricingSettingsButton: document.getElementById('pricingSettingsButton'),
   refreshButton: document.getElementById('refreshButton'),
+  aboutButton: document.getElementById('aboutButton'),
   openButton: document.getElementById('openButton'),
   quitButton: document.getElementById('quitButton'),
   resizeGrip: document.getElementById('resizeGrip'),
@@ -42,15 +47,27 @@ const els = {
   confirmDialog: document.getElementById('confirmDialog'),
   confirmTitle: document.getElementById('confirmTitle'),
   confirmBody: document.getElementById('confirmBody'),
+  confirmStatus: document.getElementById('confirmStatus'),
   cancelSwitchButton: document.getElementById('cancelSwitchButton'),
-  confirmSwitchButton: document.getElementById('confirmSwitchButton')
+  manualSwitchButton: document.getElementById('manualSwitchButton'),
+  autoSwitchButton: document.getElementById('autoSwitchButton'),
+  themeToggleButton: document.getElementById('themeToggleButton'),
+  pricingDialog: document.getElementById('pricingDialog'),
+  inputPriceField: document.getElementById('inputPriceField'),
+  cachedInputPriceField: document.getElementById('cachedInputPriceField'),
+  outputPriceField: document.getElementById('outputPriceField'),
+  pricingStatus: document.getElementById('pricingStatus'),
+  cancelPricingButton: document.getElementById('cancelPricingButton'),
+  resetPricingButton: document.getElementById('resetPricingButton'),
+  savePricingButton: document.getElementById('savePricingButton')
 };
 
-const GPT_5_5_STANDARD_PRICE_PER_MILLION = Object.freeze({
+const DEFAULT_GPT_5_5_PRICE_PER_MILLION = Object.freeze({
   input: 5,
   cachedInput: 0.5,
   output: 30
 });
+const PRICING_STORAGE_KEY = 'codexUsagePricing';
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -102,17 +119,45 @@ function formatUsdEstimate(value) {
   return `≈ ${amount}`;
 }
 
+function normalizePricing(value) {
+  const source = value || {};
+  const normalized = {};
+  for (const key of ['input', 'cachedInput', 'output']) {
+    const number = Number(source[key]);
+    normalized[key] = Number.isFinite(number) && number >= 0
+      ? Math.min(number, 1000000)
+      : DEFAULT_GPT_5_5_PRICE_PER_MILLION[key];
+  }
+  return normalized;
+}
+
+function loadPricingSettings() {
+  try {
+    return normalizePricing(JSON.parse(localStorage.getItem(PRICING_STORAGE_KEY) || '{}'));
+  } catch {
+    return normalizePricing();
+  }
+}
+
+function savePricingSettings(value) {
+  const pricing = normalizePricing(value);
+  localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(pricing));
+  state.pricing = pricing;
+  return pricing;
+}
+
 function estimateGpt55Cost(window) {
   if (!window) return null;
+  const pricing = state.pricing || DEFAULT_GPT_5_5_PRICE_PER_MILLION;
   const inputTokens = Math.max(0, Number(window.inputTokens) || 0);
   const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(window.cachedInputTokens) || 0));
   const outputTokens = Math.max(0, Number(window.outputTokens) || 0);
   const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
   const input = (
-    uncachedInputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.input +
-    cachedInputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.cachedInput
+    uncachedInputTokens * pricing.input +
+    cachedInputTokens * pricing.cachedInput
   ) / 1000000;
-  const output = outputTokens * GPT_5_5_STANDARD_PRICE_PER_MILLION.output / 1000000;
+  const output = outputTokens * pricing.output / 1000000;
   return { input, output, total: input + output };
 }
 
@@ -143,6 +188,27 @@ function accountDisplayName(account) {
   const nickname = account.nickname || account.label?.split(' - ')[0] || 'Codex';
   const username = account.username || account.label?.split(' - ').slice(1).join(' - ') || '未知账号';
   return `${nickname} ${username}`;
+}
+
+function snapshotFromResult(result) {
+  return result?.snapshot || result;
+}
+
+function applyTheme(theme) {
+  state.theme = theme === 'light' ? 'light' : 'dark';
+  els.root.dataset.theme = state.theme;
+  localStorage.setItem('codexUsageTheme', state.theme);
+  if (!els.themeToggleButton) return;
+  const isDark = state.theme === 'dark';
+  els.themeToggleButton.textContent = isDark ? '☀️' : '🌙';
+  els.themeToggleButton.title = isDark ? '切换浅色模式' : '切换深色模式';
+  els.themeToggleButton.setAttribute('aria-label', els.themeToggleButton.title);
+}
+
+function setButtonBusy(button, busyText, fallbackText) {
+  if (!button.dataset.defaultText) button.dataset.defaultText = fallbackText || button.textContent;
+  button.textContent = busyText;
+  button.disabled = true;
 }
 
 function accountNameParts(account) {
@@ -420,16 +486,101 @@ async function refresh() {
   }
 }
 
+function setSwitchStatus(message, tone = '') {
+  els.confirmStatus.hidden = !message;
+  els.confirmStatus.textContent = message || '';
+  els.confirmStatus.classList.toggle('is-pending', tone === 'pending');
+  els.confirmStatus.classList.toggle('is-success', tone === 'success');
+  els.confirmStatus.classList.toggle('is-error', tone === 'error');
+}
+
+function setPricingStatus(message, tone = '') {
+  els.pricingStatus.hidden = !message;
+  els.pricingStatus.textContent = message || '';
+  els.pricingStatus.classList.toggle('is-pending', tone === 'pending');
+  els.pricingStatus.classList.toggle('is-success', tone === 'success');
+  els.pricingStatus.classList.toggle('is-error', tone === 'error');
+}
+
+function priceInputValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(number) : '';
+}
+
+function setPricingFields(pricing = state.pricing) {
+  const next = normalizePricing(pricing);
+  els.inputPriceField.value = priceInputValue(next.input);
+  els.cachedInputPriceField.value = priceInputValue(next.cachedInput);
+  els.outputPriceField.value = priceInputValue(next.output);
+}
+
+function readPricingFields() {
+  const fields = [
+    ['input', els.inputPriceField, '输入'],
+    ['cachedInput', els.cachedInputPriceField, '缓存输入'],
+    ['output', els.outputPriceField, '输出']
+  ];
+  const result = {};
+  for (const [key, field, label] of fields) {
+    const number = Number(field.value);
+    if (!Number.isFinite(number) || number < 0) {
+      throw new Error(`${label}价格需要是大于等于 0 的数字`);
+    }
+    result[key] = number;
+  }
+  return normalizePricing(result);
+}
+
+function openPricingDialog() {
+  setPricingFields();
+  setPricingStatus('');
+  els.pricingDialog.hidden = false;
+  requestAnimationFrame(() => els.inputPriceField.focus());
+  schedulePanelHeightResize();
+}
+
+function closePricingDialog() {
+  setPricingStatus('');
+  els.pricingDialog.hidden = true;
+  schedulePanelHeightResize();
+}
+
+function setSwitchActions(mode, strategy = '') {
+  const isBusy = mode === 'busy';
+  const isDone = mode === 'done';
+  els.cancelSwitchButton.hidden = isBusy || isDone;
+  els.manualSwitchButton.hidden = isDone;
+  els.autoSwitchButton.hidden = isDone;
+  els.cancelSwitchButton.disabled = isBusy;
+  els.manualSwitchButton.disabled = isBusy;
+  els.autoSwitchButton.disabled = isBusy;
+  els.cancelSwitchButton.textContent = isDone ? '知道了' : '取消';
+  els.manualSwitchButton.textContent = isBusy && strategy === 'manual' ? '切换中...' : '手动切换';
+  els.autoSwitchButton.textContent = isBusy && strategy === 'auto' ? '自动切换中...' : '自动切换';
+
+  if (isDone) {
+    els.cancelSwitchButton.hidden = false;
+    els.cancelSwitchButton.disabled = false;
+  }
+}
+
 function openSwitchDialog(account) {
   state.pendingSwitchAccount = account;
+  state.switchPhase = 'choice';
   els.confirmTitle.textContent = `切换到 ${account.nickname || account.username || '该账号'}？`;
-  els.confirmBody.textContent = '会替换当前 auth.json，已运行的 Codex 会话可能需要新开 turn 或重启。';
+  els.confirmBody.textContent = '手动切换仅替换 auth.json，需要你随后重启 Codex；自动切换会在替换后尝试自动重启 Codex。';
+  setSwitchStatus('请选择切换方式，两种方式都不会自动轮换账号。');
+  setSwitchActions('choice');
   els.confirmDialog.hidden = false;
+  schedulePanelHeightResize();
 }
 
 function closeSwitchDialog() {
   state.pendingSwitchAccount = null;
+  state.switchPhase = 'idle';
+  setSwitchStatus('');
   els.confirmDialog.hidden = true;
+  schedulePanelHeightResize();
 }
 
 function startDrag(event, element) {
@@ -530,28 +681,110 @@ document.querySelectorAll('[data-local-range]').forEach((button) => {
 els.closePanel.addEventListener('click', () => setPanelOpen(false));
 els.scrim.addEventListener('click', () => setPanelOpen(false));
 els.refreshButton.addEventListener('click', refresh);
-els.importAccountButton.addEventListener('click', async () => {
-  els.importAccountButton.disabled = true;
+els.pricingSettingsButton.addEventListener('click', openPricingDialog);
+els.cancelPricingButton.addEventListener('click', closePricingDialog);
+els.resetPricingButton.addEventListener('click', () => {
+  const pricing = savePricingSettings(DEFAULT_GPT_5_5_PRICE_PER_MILLION);
+  setPricingFields(pricing);
+  renderLocalSummary(state.snapshot?.localTokenSummary);
+  setPricingStatus('已恢复默认定价。', 'success');
+  schedulePanelHeightResize();
+});
+els.savePricingButton.addEventListener('click', () => {
   try {
-    state.snapshot = await window.codexUsage.importCurrentAccount();
+    const pricing = savePricingSettings(readPricingFields());
+    setPricingFields(pricing);
+    renderLocalSummary(state.snapshot?.localTokenSummary);
+    closePricingDialog();
+  } catch (error) {
+    setPricingStatus(String(error?.message || error || '定价保存失败'), 'error');
+    schedulePanelHeightResize();
+  }
+});
+els.importAccountButton.addEventListener('click', async () => {
+  setButtonBusy(els.importAccountButton, '导入中...', '+ 导入当前账号');
+  try {
+    const result = await window.codexUsage.importCurrentAccount();
+    state.snapshot = snapshotFromResult(result);
     render();
+    els.importAccountButton.textContent = result?.status === 'updated' ? '已导入，数据已更新' : '已导入当前账号';
+    setTimeout(() => {
+      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '+ 导入当前账号';
+    }, 1800);
+  } catch (error) {
+    els.importAccountButton.textContent = '导入失败';
+    setTimeout(() => {
+      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '+ 导入当前账号';
+    }, 1800);
+    console.error(error);
   } finally {
     els.importAccountButton.disabled = false;
   }
 });
 els.cancelSwitchButton.addEventListener('click', closeSwitchDialog);
-els.confirmSwitchButton.addEventListener('click', async () => {
+async function performAccountSwitch(strategy) {
   const account = state.pendingSwitchAccount;
   if (!account) return;
-  els.confirmSwitchButton.disabled = true;
+  state.switchPhase = 'switching';
+  setSwitchActions('busy', strategy);
+  setSwitchStatus('正在替换 auth.json 并刷新账号信息...', 'pending');
   try {
-    state.snapshot = await window.codexUsage.switchAccount(account.id);
-    closeSwitchDialog();
+    const result = await window.codexUsage.switchAccount(account.id);
+    state.snapshot = snapshotFromResult(result);
     render();
+    const displayName = accountDisplayName(result?.account || account);
+
+    if (strategy === 'manual') {
+      state.switchPhase = 'done';
+      els.confirmTitle.textContent = '账号已切换';
+      els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
+      setSwitchStatus('请手动重启 Codex，使新账号在后续会话中生效。', 'success');
+      setSwitchActions('done');
+      return;
+    }
+
+    setSwitchStatus('账号已切换，正在检测并重启 Codex...', 'pending');
+    const codexStatus = await window.codexUsage.getCodexStatus();
+    if (!codexStatus?.running) {
+      state.switchPhase = 'done';
+      els.confirmTitle.textContent = '自动切换完成';
+      els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
+      setSwitchStatus('未检测到正在运行的 Codex；下次启动时会使用新账号。', 'success');
+      setSwitchActions('done');
+      return;
+    }
+
+    if (!codexStatus.canAutoRestart) {
+      state.switchPhase = 'done';
+      els.confirmTitle.textContent = '账号已切换';
+      els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
+      setSwitchStatus('无法定位 Codex 的启动路径，请手动重启 Codex。', 'error');
+      setSwitchActions('done');
+      return;
+    }
+
+    setSwitchStatus('账号已切换，正在关闭并重新打开 Codex...', 'pending');
+    const restartResult = await window.codexUsage.restartCodex();
+    state.switchPhase = 'done';
+    els.confirmTitle.textContent = restartResult?.ok ? '自动切换完成' : '账号已切换';
+    els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
+    setSwitchStatus(restartResult?.ok
+      ? (restartResult.message || 'Codex 已重新启动，新账号将在后续会话中生效。')
+      : (restartResult?.message || 'Codex 自动重启失败，请手动重启。'), restartResult?.ok ? 'success' : 'error');
+    setSwitchActions('done');
+  } catch (error) {
+    state.switchPhase = 'choice';
+    setSwitchStatus(`切换失败：${String(error?.message || error || '未知错误')}`, 'error');
+    setSwitchActions('choice');
   } finally {
-    els.confirmSwitchButton.disabled = false;
+    schedulePanelHeightResize();
   }
-});
+}
+
+els.manualSwitchButton.addEventListener('click', () => performAccountSwitch('manual'));
+els.autoSwitchButton.addEventListener('click', () => performAccountSwitch('auto'));
+els.themeToggleButton.addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark'));
+els.aboutButton.addEventListener('click', () => window.codexUsage.openAbout());
 els.openButton.addEventListener('click', () => window.codexUsage.openWeb());
 els.quitButton.addEventListener('click', () => window.codexUsage.quit());
 window.codexUsage.onSnapshot((value) => {
@@ -559,4 +792,6 @@ window.codexUsage.onSnapshot((value) => {
   render();
 });
 
+state.pricing = loadPricingSettings();
+applyTheme(state.theme);
 load();

@@ -36,6 +36,10 @@
             </div>
           </div>
           <div class="head-actions">
+            <button id="pricingSettingsButton" class="icon-button" title="定价设置" aria-label="定价设置">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </button>
+            <button id="themeToggleButton" class="theme-toggle" title="切换浅色模式" aria-label="切换浅色模式">☀️</button>
             <button id="refreshButton" class="icon-button" title="刷新" aria-label="刷新">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>
             </button>
@@ -100,23 +104,60 @@
         </div>
 
         <footer class="actions">
-          <button id="openButton" class="text-button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-            打开网页
-          </button>
-          <button id="quitButton" class="text-button ghost">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><path d="M12 2v10"/></svg>
-            退出
-          </button>
+          <div class="action-group">
+            <button id="aboutButton" class="text-button ghost">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              关于工具
+            </button>
+          </div>
+          <div class="action-group action-group-right">
+            <button id="openButton" class="text-button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+              打开网页
+            </button>
+            <button id="quitButton" class="text-button ghost">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><path d="M12 2v10"/></svg>
+              退出
+            </button>
+          </div>
         </footer>
 
         <div id="confirmDialog" class="confirm-backdrop" hidden>
           <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
             <h2 id="confirmTitle">切换账号？</h2>
             <p id="confirmBody">会替换当前 auth.json，已运行的 Codex 会话可能需要新开 turn 或重启。</p>
+            <div id="confirmStatus" class="switch-status" hidden></div>
             <div class="confirm-actions">
               <button id="cancelSwitchButton" class="text-button ghost">取消</button>
-              <button id="confirmSwitchButton" class="text-button danger">确认切换</button>
+              <button id="manualSwitchButton" class="text-button ghost">手动切换</button>
+              <button id="autoSwitchButton" class="text-button">自动切换</button>
+            </div>
+          </section>
+        </div>
+
+        <div id="pricingDialog" class="confirm-backdrop" hidden>
+          <section class="confirm-card pricing-card" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
+            <h2 id="pricingTitle">定价设置</h2>
+            <p>美元 / 100万 Token，本地估算使用；官方价格变化时可在这里调整。</p>
+            <div class="pricing-form">
+              <label class="price-field">
+                <span>输入</span>
+                <input id="inputPriceField" type="number" min="0" step="0.0001" inputmode="decimal" />
+              </label>
+              <label class="price-field">
+                <span>缓存输入</span>
+                <input id="cachedInputPriceField" type="number" min="0" step="0.0001" inputmode="decimal" />
+              </label>
+              <label class="price-field">
+                <span>输出</span>
+                <input id="outputPriceField" type="number" min="0" step="0.0001" inputmode="decimal" />
+              </label>
+            </div>
+            <div id="pricingStatus" class="switch-status" hidden></div>
+            <div class="confirm-actions">
+              <button id="cancelPricingButton" class="text-button ghost">取消</button>
+              <button id="resetPricingButton" class="text-button ghost">恢复默认</button>
+              <button id="savePricingButton" class="text-button">保存</button>
             </div>
           </section>
         </div>

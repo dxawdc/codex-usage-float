@@ -3,8 +3,10 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs/promises');
+const { execFile } = require('child_process');
 
 const APP_URL = 'https://chatgpt.com';
+const GITHUB_REPO_URL = 'https://github.com/dxawdc/codex-usage-float';
 const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const CODEX_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'sessions');
 const CODEX_ARCHIVED_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'archived_sessions');
@@ -46,6 +48,110 @@ function accountsPath() {
 
 function debugPath() {
   return path.join(app.getPath('userData'), 'last-capture.json');
+}
+
+function runPowerShell(script, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { windowsHide: true, timeout: timeoutMs },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(String(stderr || error.message || error).trim()));
+          return;
+        }
+        resolve(String(stdout || '').trim());
+      }
+    );
+  });
+}
+
+function codexProcessFilterScript() {
+  const currentPid = Number(process.pid) || 0;
+  return `
+    $currentPid = ${currentPid}
+    Get-CimInstance Win32_Process | Where-Object {
+      $_.ProcessId -ne $currentPid -and
+      $_.Name -notmatch 'CodexUsageFloat|electron' -and
+      ($_.ExecutablePath -notmatch 'codex-usage-float|codex用量|CodexUsageFloat') -and
+      (
+        $_.Name -match '^(Codex|OpenAI Codex)(\\.exe)?$' -or
+        $_.ExecutablePath -match '\\\\(Codex|OpenAI Codex)\\\\.*Codex.*\\.exe$'
+      )
+    }
+  `;
+}
+
+function normalizeProcessList(jsonText) {
+  if (!jsonText) return [];
+  try {
+    const parsed = JSON.parse(jsonText);
+    return (Array.isArray(parsed) ? parsed : [parsed])
+      .filter(Boolean)
+      .map((item) => ({
+        processId: Number(item.ProcessId || item.processId),
+        name: item.Name || item.name || '',
+        executablePath: item.ExecutablePath || item.executablePath || ''
+      }))
+      .filter((item) => Number.isFinite(item.processId));
+  } catch {
+    return [];
+  }
+}
+
+async function getCodexAppStatus() {
+  if (process.platform !== 'win32') {
+    return { platform: process.platform, running: false, count: 0, processes: [], canAutoRestart: false };
+  }
+  const stdout = await runPowerShell(`
+    $items = @(${codexProcessFilterScript()})
+    $items | Select-Object ProcessId, Name, ExecutablePath | ConvertTo-Json -Compress
+  `, 8000);
+  const processes = normalizeProcessList(stdout);
+  return {
+    platform: process.platform,
+    running: processes.length > 0,
+    count: processes.length,
+    canAutoRestart: processes.some((item) => item.executablePath),
+    processes
+  };
+}
+
+async function restartCodexApp() {
+  if (process.platform !== 'win32') {
+    return { ok: false, message: '当前平台暂不支持自动重启 Codex' };
+  }
+  const status = await getCodexAppStatus();
+  if (!status.running) {
+    return { ok: true, runningBefore: false, restarted: false, message: '未检测到正在运行的 Codex，下次启动会使用已切换账号' };
+  }
+  const paths = [...new Set(status.processes.map((item) => item.executablePath).filter(Boolean))];
+  if (!paths.length) {
+    return { ok: false, runningBefore: true, restarted: false, message: '检测到 Codex 正在运行，但无法定位可重启的程序路径' };
+  }
+  const payload = Buffer.from(JSON.stringify({
+    pids: status.processes.map((item) => item.processId),
+    paths
+  }), 'utf8').toString('base64');
+  const stdout = await runPowerShell(`
+    $payload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+    foreach ($targetPid in @($payload.pids)) {
+      Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Milliseconds 900
+    foreach ($path in @($payload.paths)) {
+      if ($path -and (Test-Path -LiteralPath $path)) {
+        Start-Process -FilePath $path | Out-Null
+      }
+    }
+    @{ ok = $true; runningBefore = $true; restarted = $true; count = @($payload.pids).Count } | ConvertTo-Json -Compress
+  `, 15000);
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return { ok: true, runningBefore: true, restarted: true, message: '已发起 Codex 重启' };
+  }
 }
 
 function createEmptyState() {
@@ -1346,8 +1452,10 @@ async function refreshAccountsStore({ currentAuthJson = null, currentLocal = nul
   const store = await loadAccountsStore();
   const currentAccountKey = currentLocal?.accountKey || null;
   const nextAccounts = [];
+  let currentAccountWasStored = false;
   for (const account of store.accounts) {
     if (currentAccountKey && account.accountKey === currentAccountKey && currentAuthJson) {
+      currentAccountWasStored = true;
       nextAccounts.push(buildStoredAccount(currentAuthJson, {
         ...currentLocal,
         planTier: currentUsage?.planTier || currentLocal.planTier,
@@ -1364,7 +1472,28 @@ async function refreshAccountsStore({ currentAuthJson = null, currentLocal = nul
       nextAccounts.push(await refreshStoredAccount(account));
     }
   }
-  const nextStore = { version: 1, accounts: nextAccounts };
+  if (currentAccountKey && currentAuthJson && !currentAccountWasStored) {
+    nextAccounts.unshift(buildStoredAccount(currentAuthJson, {
+      ...currentLocal,
+      planTier: currentUsage?.planTier || currentLocal.planTier,
+      membershipExpiresAt: currentUsage?.membershipExpiresAt || currentLocal.membershipExpiresAt
+    }, {
+      usage: currentUsage || null,
+      tokenUsage: currentTokenUsage || null,
+      resetCards: currentResetCards || [],
+      usageError: null,
+      lastSyncedAt: syncedAt || null
+    }));
+  }
+  const uniqueAccounts = [];
+  const seen = new Set();
+  for (const account of nextAccounts) {
+    const key = account.accountKey || account.id;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    uniqueAccounts.push(account);
+  }
+  const nextStore = { version: 1, accounts: uniqueAccounts };
   await saveAccountsStore(nextStore);
   return nextStore;
 }
@@ -1384,7 +1513,11 @@ async function importCurrentAccount() {
   }
   await saveAccountsStore(store);
   await refreshUsage('import-account');
-  return getViewSnapshot();
+  return {
+    snapshot: getViewSnapshot(),
+    account: accountView(account, local.accountKey),
+    status: existingIndex >= 0 ? 'updated' : 'created'
+  };
 }
 
 async function switchAccount(id) {
@@ -1397,7 +1530,11 @@ async function switchAccount(id) {
   account.updatedAt = now;
   await saveAccountsStore(store);
   await refreshUsage('switch-account');
-  return getViewSnapshot();
+  return {
+    snapshot: getViewSnapshot(),
+    account: accountView(account, account.accountKey),
+    switchedAt: now
+  };
 }
 
 async function deleteAccount(id) {
@@ -1603,37 +1740,6 @@ function createWebWindow() {
   });
 }
 
-async function refreshUsageLegacy(reason = 'manual') {
-  const local = await refreshFromLocalAuth();
-  const direct = await fetchWithCodexAuth();
-  const page = await scrapeVisiblePage();
-  const fallback = mergeDefined(
-    {
-      planTier: local.planTier,
-      membershipExpiresAt: local.membershipExpiresAt
-    },
-    page
-  );
-  const merged = mergeDefined(
-    fallback,
-    direct
-  );
-  const hasUsage = Number.isFinite(Number(merged.usageRemainingPercent)) || merged.resetCards?.length;
-  await saveState({
-    snapshot: {
-      ...merged,
-      lastSyncedAt: new Date().toISOString(),
-      sourceStatus: statusText,
-      obsoleteStatus: hasUsage
-        ? '已同步 Codex 用量'
-        : reason === 'manual'
-          ? '已刷新会员信息；请打开网页登录或进入 Codex 相关页面以捕获用量'
-          : state.snapshot?.sourceStatus || '等待捕获实时用量'
-    }
-  });
-  return getViewSnapshot();
-}
-
 async function refreshUsage(reason = 'manual') {
   const currentAuthJson = await readJson(AUTH_PATH, null);
   const local = parseCodexAuth(currentAuthJson);
@@ -1822,6 +1928,8 @@ ipcMain.handle('usage:open-web', () => openWebWindow());
 ipcMain.handle('accounts:import-current', () => importCurrentAccount());
 ipcMain.handle('accounts:switch', (_event, id) => switchAccount(id));
 ipcMain.handle('accounts:delete', (_event, id) => deleteAccount(id));
+ipcMain.handle('codex:status', () => getCodexAppStatus());
+ipcMain.handle('codex:restart', () => restartCodexApp());
 ipcMain.handle('local-token-summary:refresh', async () => {
   const localTokenSummary = await collectLocalTokenSummary();
   await saveState({ snapshot: { localTokenSummary } }, ['localTokenSummary']);
@@ -1853,6 +1961,7 @@ ipcMain.handle('window:move-by', (_event, delta) => {
 ipcMain.handle('window:set-panel-height', (_event, height) => resizeOpenPanelHeight(height));
 ipcMain.handle('window:set-detail-open', (_event, open) => positionPanel(open));
 ipcMain.handle('external:open-chatgpt', () => shell.openExternal(APP_URL));
+ipcMain.handle('external:open-repo', () => shell.openExternal(GITHUB_REPO_URL));
 ipcMain.handle('app:quit', () => app.quit());
 
 app.on('before-quit', () => {
