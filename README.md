@@ -16,7 +16,7 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v1.0.2](https://github.com/dxawdc/codex-usage-float/releases/latest/download/CodexUsageFloat-1.0.2.exe)
+- **推荐下载**：[CodexUsageFloat v1.0.3](https://github.com/dxawdc/codex-usage-float/releases/download/v1.0.3/CodexUsageFloat-1.0.3.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
