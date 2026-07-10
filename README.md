@@ -3,7 +3,7 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.2-2f81f7" alt="release v1.0.2" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.3-2f81f7" alt="release v1.0.3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-38-47848f" alt="Electron 38" />
@@ -23,18 +23,19 @@
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
+| `v1.0.3` | `CodexUsageFloat-1.0.3.exe` | `3296CE3D21A9DFBF51F28DF5DD91FD1DC5306E489D40E2DAAA89281C686FDC8F` |
 | `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `E56DB820BF47D505F43A9C54084F130D405A6E06F3693C86F5EEBA83530A4224` |
 | `v1.0.1` | `CodexUsageFloat-1.0.1.exe` | `30FD07B2F65A29E903164B7DB7CE71498EBA2E84D78C0ABF9CE8AB9A22DF665A` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-1.0.2.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-1.0.3.exe -Algorithm SHA256
 ```
 
 ## 版本更新记录
 
-### 未发布
+### v1.0.3 - 2026-07-10
 
 - 本地 JSONL 日志按会话模型拆分 Token 用量与费用估算，定价设置支持分别调整各模型的输入、缓存输入和输出价格。
 - 优化详情面板的紧凑布局；账号超过 3 个时账号列表在面板内纵向滚动。
