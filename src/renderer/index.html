@@ -100,6 +100,7 @@
               </div>
             </dl>
             <p id="localTokenMeta" class="meta-line">--</p>
+            <div id="localModelBreakdown" class="model-breakdown" aria-label="按模型拆分的 Token 用量"></div>
           </section>
         </div>
 
@@ -138,8 +139,12 @@
         <div id="pricingDialog" class="confirm-backdrop" hidden>
           <section class="confirm-card pricing-card" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
             <h2 id="pricingTitle">定价设置</h2>
-            <p>美元 / 100万 Token，本地估算使用；官方价格变化时可在这里调整。</p>
+            <p>美元 / 100万 Token。每种模型独立估算，官方价格变化时可在这里调整。</p>
             <div class="pricing-form">
+              <label class="price-field price-model-field">
+                <span>模型</span>
+                <select id="pricingModelSelect"></select>
+              </label>
               <label class="price-field">
                 <span>输入</span>
                 <input id="inputPriceField" type="number" min="0" step="0.0001" inputmode="decimal" />

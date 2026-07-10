@@ -3,7 +3,7 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.2-2f81f7" alt="release v1.0.2" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.3-2f81f7" alt="release v1.0.3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-38-47848f" alt="Electron 38" />
@@ -23,16 +23,23 @@
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
+| `v1.0.3` | `CodexUsageFloat-1.0.3.exe` | `3296CE3D21A9DFBF51F28DF5DD91FD1DC5306E489D40E2DAAA89281C686FDC8F` |
 | `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `E56DB820BF47D505F43A9C54084F130D405A6E06F3693C86F5EEBA83530A4224` |
 | `v1.0.1` | `CodexUsageFloat-1.0.1.exe` | `30FD07B2F65A29E903164B7DB7CE71498EBA2E84D78C0ABF9CE8AB9A22DF665A` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-1.0.2.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-1.0.3.exe -Algorithm SHA256
 ```
 
 ## 版本更新记录
+
+### v1.0.3 - 2026-07-10
+
+- 本地 JSONL 日志按会话模型拆分 Token 用量与费用估算，定价设置支持分别调整各模型的输入、缓存输入和输出价格。
+- 优化详情面板的紧凑布局；账号超过 3 个时账号列表在面板内纵向滚动。
+- 本地日志的模型用量改为双列展示，减少面板纵向占用。
 
 ### v1.0.2 - 2026-07-04
 
@@ -83,10 +90,10 @@ Get-FileHash .\CodexUsageFloat-1.0.2.exe -Algorithm SHA256
 ## 主要功能
 
 - **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比。
-- **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、5 小时额度和 1 周额度。
+- **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、5 小时额度和 1 周额度；账号超过 3 个时在列表内滚动。
 - **可控账号切换**：提供手动切换与自动切换；均会原子替换 `~/.codex/auth.json`，自动切换还会尝试重启已运行的 Codex。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天和 30 天总 Token。该数据来自账号接口，可能存在同步延迟。
-- **本地日志汇总**：按今日、7 天和 30 天切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数，并按 GPT-5.5 标准 API 费率估算输入、输出及总费用。
+- **本地日志汇总**：按今日、7 天和 30 天切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数；按模型双列展示用量与费用，并使用独立模型费率估算总费用。
 - **重置卡列表**：显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
 - **主题与定价设置**：支持深色/浅色主题；可在设置中维护输入、缓存输入和输出单价，适应后续价格调整。
@@ -168,18 +175,22 @@ npm run dev
 
 本地日志汇总固定统计所有会话，不拆分账号。多个账号共用同一个 `~/.codex` 时，本地历史文件通常缺少可靠账号标识，因此不应将这部分数据解释为某个账号的精确账单。
 
-### GPT-5.5 费用估算与自定义定价
+### 按模型费用估算与自定义定价
 
-费用估算默认采用 [OpenAI GPT-5.5 官方标准 API 价格](https://developers.openai.com/api/docs/models/gpt-5.5)，每 100 万 Token 的输入、缓存输入、输出价格分别为 `$5.00`、`$0.50`、`$30.00`。可通过面板顶部的“定价设置”修改三项单价，保存后会立即重新计算本地汇总中的估算金额：
+本地会话日志会读取同一会话中的 `turn_context.payload.model`，并将后续 `token_count` 增量按模型拆分。日志未提供模型上下文的历史用量会显示为“未识别模型”，可单独配置其兜底单价。
+
+内置预设覆盖 GPT-5.6 Sol、GPT-5.6 Terra、GPT-5.6 Luna、GPT-5.5、GPT-5.4、GPT-5.4 Mini、GPT-5.3 Codex 和 GPT-5.2；可在定价设置中逐个模型修改输入、缓存输入和输出单价。新模型会随本地日志自动出现在设置中。
+
+费用估算按模型采用内置的官方标准费率预设；可通过面板顶部的“定价设置”选择模型并修改输入、缓存输入和输出三项单价，保存后会立即重新计算本地汇总中的估算金额。各模型的官方费率可能变动，请以 OpenAI 的 [Codex rate card](https://help.openai.com/en/articles/20001106-codex-rate-card-2) 与 [模型价格页](https://developers.openai.com/api/docs/models) 为准：
 
 ```text
-输入费用 = (输入 - 缓存输入) / 1,000,000 × $5.00
-         + 缓存输入 / 1,000,000 × $0.50
-输出费用 = 输出 / 1,000,000 × $30.00
+输入费用 = (输入 - 缓存输入) / 1,000,000 × 当前模型输入单价
+         + 缓存输入 / 1,000,000 × 当前模型缓存输入单价
+输出费用 = 输出 / 1,000,000 × 当前模型输出单价
 总计费用 = 输入费用 + 输出费用
 ```
 
-推理输出属于输出统计的一部分，不重复计费。该金额仅用于把本地 Token 用量换算成标准 API 价格的近似参考，并非 ChatGPT / Codex 订阅账单。单次请求输入超过 272K Token 时，GPT-5.5 标准费率会对整个会话采用 2 倍输入价和 1.5 倍输出价；本地汇总缺少可靠的逐请求上下文长度，因此暂不计算这类加价，也不包含 Fast、Priority、Batch、Flex 或数据区域费率差异。
+推理输出属于输出统计的一部分，不重复计费。该金额仅用于把本地 Token 用量换算成标准 API 价格的近似参考，并非 ChatGPT / Codex 订阅账单。本地汇总缺少可靠的逐请求计费模式和上下文长度，因此不计算长上下文、Fast、Priority、Batch、Flex 或数据区域费率差异。
 
 ## 颜色规则
 
@@ -251,6 +262,8 @@ npm run build
 
 `dist/` 已加入 `.gitignore`，EXE 不会自动提交到 GitHub。
 
+项目维护者进行安全检查、正式打包和 GitHub Release 时，请遵循 [安全发布与 GitHub Release 检查清单](docs/RELEASE_CHECKLIST.md)。
+
 ## 项目结构
 
 ```text
@@ -261,6 +274,8 @@ src/renderer/app.js      前端渲染与交互逻辑
 src/renderer/styles.css  UI 样式和自适应布局
 build/                   应用图标
 docs/screenshots/        README 示例截图
+docs/RELEASE_CHECKLIST.md 安全发布与 GitHub Release 检查清单
+AGENTS.md                 项目维护与交付规则
 ```
 
 ## 已知限制
