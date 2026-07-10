@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
 
 const APP_URL = 'https://chatgpt.com';
 const GITHUB_REPO_URL = 'https://github.com/dxawdc/codex-usage-float';
+const CODEX_DESKTOP_APP_ID = 'OpenAI.Codex_2p2nqsd0c76g0!App';
 const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const CODEX_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'sessions');
 const CODEX_ARCHIVED_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'archived_sessions');
@@ -29,6 +30,8 @@ const TOKEN_FINGERPRINT_VERSION = 4;
 let floatWindow;
 let webWindow;
 let refreshTimer;
+let refreshInFlight = null;
+let authTransitionInProgress = false;
 let panelState = { open: false, side: 'right', orbX: 0, orbY: 0 };
 let config = { windowSize: 116 };
 let state = createEmptyState();
@@ -67,18 +70,11 @@ function runPowerShell(script, timeoutMs = 10000) {
   });
 }
 
-function codexProcessFilterScript() {
-  const currentPid = Number(process.pid) || 0;
+function codexDesktopProcessFilterScript() {
   return `
-    $currentPid = ${currentPid}
     Get-CimInstance Win32_Process | Where-Object {
-      $_.ProcessId -ne $currentPid -and
-      $_.Name -notmatch 'CodexUsageFloat|electron' -and
-      ($_.ExecutablePath -notmatch 'codex-usage-float|codex用量|CodexUsageFloat') -and
-      (
-        $_.Name -match '^(Codex|OpenAI Codex)(\\.exe)?$' -or
-        $_.ExecutablePath -match '\\\\(Codex|OpenAI Codex)\\\\.*Codex.*\\.exe$'
-      )
+      $_.Name -eq 'ChatGPT.exe' -and
+      $_.ExecutablePath -match '\\\\WindowsApps\\\\OpenAI\\.Codex_[^\\\\]+\\\\app\\\\ChatGPT\\.exe$'
     }
   `;
 }
@@ -105,7 +101,7 @@ async function getCodexAppStatus() {
     return { platform: process.platform, running: false, count: 0, processes: [], canAutoRestart: false };
   }
   const stdout = await runPowerShell(`
-    $items = @(${codexProcessFilterScript()})
+    $items = @(${codexDesktopProcessFilterScript()})
     $items | Select-Object ProcessId, Name, ExecutablePath | ConvertTo-Json -Compress
   `, 8000);
   const processes = normalizeProcessList(stdout);
@@ -113,45 +109,88 @@ async function getCodexAppStatus() {
     platform: process.platform,
     running: processes.length > 0,
     count: processes.length,
-    canAutoRestart: processes.some((item) => item.executablePath),
+    canAutoRestart: true,
     processes
   };
 }
 
-async function restartCodexApp() {
+async function stopCodexDesktopApp() {
   if (process.platform !== 'win32') {
-    return { ok: false, message: '当前平台暂不支持自动重启 Codex' };
+    return { ok: false, runningBefore: false, stopped: false, message: '当前平台暂不支持自动关闭 Codex' };
   }
-  const status = await getCodexAppStatus();
-  if (!status.running) {
-    return { ok: true, runningBefore: false, restarted: false, message: '未检测到正在运行的 Codex，下次启动会使用已切换账号' };
-  }
-  const paths = [...new Set(status.processes.map((item) => item.executablePath).filter(Boolean))];
-  if (!paths.length) {
-    return { ok: false, runningBefore: true, restarted: false, message: '检测到 Codex 正在运行，但无法定位可重启的程序路径' };
-  }
-  const payload = Buffer.from(JSON.stringify({
-    pids: status.processes.map((item) => item.processId),
-    paths
-  }), 'utf8').toString('base64');
   const stdout = await runPowerShell(`
-    $payload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
-    foreach ($targetPid in @($payload.pids)) {
-      Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+    $items = @(${codexDesktopProcessFilterScript()})
+    if ($items.Count -eq 0) {
+      @{ ok = $true; runningBefore = $false; stopped = $true; graceful = $true; count = 0 } | ConvertTo-Json -Compress
+      exit 0
     }
-    Start-Sleep -Milliseconds 900
-    foreach ($path in @($payload.paths)) {
-      if ($path -and (Test-Path -LiteralPath $path)) {
-        Start-Process -FilePath $path | Out-Null
+    $ids = @($items | ForEach-Object { [int]$_.ProcessId })
+    $roots = @($items | Where-Object { $ids -notcontains [int]$_.ParentProcessId })
+    foreach ($item in $roots) {
+      try {
+        $process = Get-Process -Id ([int]$item.ProcessId) -ErrorAction Stop
+        if ($process.MainWindowHandle -ne 0) {
+          [void]$process.CloseMainWindow()
+        }
+      } catch {}
+    }
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+      Start-Sleep -Milliseconds 250
+      $remaining = @(${codexDesktopProcessFilterScript()})
+    } while ($remaining.Count -gt 0 -and (Get-Date) -lt $deadline)
+    $graceful = $remaining.Count -eq 0
+    if (-not $graceful) {
+      foreach ($item in $remaining) {
+        Stop-Process -Id ([int]$item.ProcessId) -Force -ErrorAction SilentlyContinue
       }
+      Start-Sleep -Milliseconds 500
     }
-    @{ ok = $true; runningBefore = $true; restarted = $true; count = @($payload.pids).Count } | ConvertTo-Json -Compress
+    @{ ok = $true; runningBefore = $true; stopped = $true; graceful = $graceful; count = $items.Count } | ConvertTo-Json -Compress
   `, 15000);
   try {
     return JSON.parse(stdout);
   } catch {
-    return { ok: true, runningBefore: true, restarted: true, message: '已发起 Codex 重启' };
+    return { ok: true, runningBefore: true, stopped: true, graceful: false };
   }
+}
+
+async function launchCodexDesktopApp() {
+  if (process.platform !== 'win32') {
+    return { ok: false, restarted: false, message: '当前平台暂不支持自动启动 Codex' };
+  }
+  try {
+    const stdout = await runPowerShell(`
+      Start-Process -FilePath 'explorer.exe' -ArgumentList 'shell:AppsFolder\\${CODEX_DESKTOP_APP_ID}' | Out-Null
+      $deadline = (Get-Date).AddSeconds(10)
+      do {
+        Start-Sleep -Milliseconds 250
+        $items = @(${codexDesktopProcessFilterScript()})
+      } while ($items.Count -eq 0 -and (Get-Date) -lt $deadline)
+      @{ ok = ($items.Count -gt 0); restarted = ($items.Count -gt 0); count = $items.Count } | ConvertTo-Json -Compress
+    `, 15000);
+    const result = JSON.parse(stdout);
+    return result.ok
+      ? { ...result, message: 'Codex 已重新启动' }
+      : { ...result, message: '未检测到 Codex 重新启动，请手动打开应用' };
+  } catch (error) {
+    return {
+      ok: false,
+      restarted: false,
+      message: `自动启动 Codex 失败：${String(error?.message || error || '未知错误')}`
+    };
+  }
+}
+
+async function restartCodexApp() {
+  const stopped = await stopCodexDesktopApp();
+  const launched = await launchCodexDesktopApp();
+  return {
+    ...launched,
+    runningBefore: stopped.runningBefore,
+    stopped: stopped.stopped,
+    graceful: stopped.graceful
+  };
 }
 
 function createEmptyState() {
@@ -1533,7 +1572,37 @@ async function refreshAccountsStore({ currentAuthJson = null, currentLocal = nul
   return nextStore;
 }
 
+function hasSwitchableAccountAuth(account) {
+  const auth = account?.authJson;
+  return Boolean(
+    auth?.auth_mode === 'chatgpt' &&
+    auth?.tokens?.access_token &&
+    auth?.tokens?.refresh_token
+  );
+}
+
+async function syncCurrentAuthToStore() {
+  const authJson = await readJson(AUTH_PATH, null);
+  const local = parseCodexAuth(authJson);
+  const store = await loadAccountsStore();
+  if (!authJson || !local.accessToken || !local.accountKey) {
+    return { store, currentAccount: null, authJson, local };
+  }
+
+  const existingIndex = store.accounts.findIndex((account) => account.accountKey === local.accountKey);
+  const existing = existingIndex >= 0 ? store.accounts[existingIndex] : {};
+  const account = buildStoredAccount(authJson, local, existing);
+  if (existingIndex >= 0) {
+    store.accounts[existingIndex] = account;
+  } else {
+    store.accounts.unshift(account);
+  }
+  await saveAccountsStore(store);
+  return { store, currentAccount: account, authJson, local };
+}
+
 async function importCurrentAccount() {
+  if (authTransitionInProgress) throw new Error('账号认证正在切换，请稍后再导入');
   const authJson = await readJson(AUTH_PATH, null);
   const local = parseCodexAuth(authJson);
   if (!local.accessToken || !local.accountKey) throw new Error('当前 auth.json 未包含可导入的 Codex ChatGPT 账号');
@@ -1555,24 +1624,114 @@ async function importCurrentAccount() {
   };
 }
 
-async function switchAccount(id) {
-  const store = await loadAccountsStore();
-  const account = store.accounts.find((item) => item.id === id);
-  if (!account?.authJson) throw new Error('未找到可切换的账号授权快照');
-  const now = new Date().toISOString();
-  await writeJson(AUTH_PATH, account.authJson);
-  account.lastSwitchedAt = now;
-  account.updatedAt = now;
-  await saveAccountsStore(store);
-  await refreshUsage('switch-account');
-  return {
-    snapshot: getViewSnapshot(),
-    account: accountView(account, account.accountKey),
-    switchedAt: now
-  };
+async function switchAccount(id, strategy = 'manual') {
+  if (authTransitionInProgress) throw new Error('已有账号认证流程正在进行');
+  authTransitionInProgress = true;
+  const normalizedStrategy = strategy === 'auto' ? 'auto' : 'manual';
+  let stopped = null;
+  let restart = null;
+  try {
+    if (refreshInFlight) await refreshInFlight;
+    const initialStore = await loadAccountsStore();
+    const initialTarget = initialStore.accounts.find((item) => item.id === id);
+    if (!hasSwitchableAccountAuth(initialTarget)) {
+      throw new Error('该账号授权已不完整，请使用“添加账号”流程重新登录');
+    }
+
+    if (normalizedStrategy === 'auto') {
+      stopped = await stopCodexDesktopApp();
+      if (!stopped.ok) throw new Error(stopped.message || '无法安全关闭 Codex 桌面端');
+    } else {
+      const status = await getCodexAppStatus();
+      if (status.running) {
+        throw new Error('手动切换前请先完全退出 Codex 桌面端，或改用自动切换');
+      }
+    }
+
+    const synced = await syncCurrentAuthToStore();
+    const account = synced.store.accounts.find((item) => item.id === id);
+    if (!hasSwitchableAccountAuth(account)) {
+      throw new Error('未找到可切换的有效账号授权');
+    }
+    const now = new Date().toISOString();
+    await writeJson(AUTH_PATH, account.authJson);
+    account.lastSwitchedAt = now;
+    account.updatedAt = now;
+    await saveAccountsStore(synced.store);
+
+    if (normalizedStrategy === 'auto') {
+      restart = await launchCodexDesktopApp();
+    }
+    await refreshUsage('switch-account');
+    return {
+      snapshot: getViewSnapshot(),
+      account: accountView(account, account.accountKey),
+      switchedAt: now,
+      strategy: normalizedStrategy,
+      restart: restart
+        ? {
+            ...restart,
+            runningBefore: stopped?.runningBefore || false,
+            stopped: stopped?.stopped || false,
+            graceful: stopped?.graceful ?? null
+          }
+        : null
+    };
+  } catch (error) {
+    if (normalizedStrategy === 'auto' && stopped?.runningBefore && !restart) {
+      await launchCodexDesktopApp();
+    }
+    throw error;
+  } finally {
+    authTransitionInProgress = false;
+  }
+}
+
+async function prepareAddAccount() {
+  if (authTransitionInProgress) throw new Error('已有账号认证流程正在进行');
+  authTransitionInProgress = true;
+  const authJson = await readJson(AUTH_PATH, null);
+  const local = parseCodexAuth(authJson);
+  if (!authJson || !local.accessToken || !local.accountKey) {
+    authTransitionInProgress = false;
+    throw new Error('当前没有可保存的 Codex ChatGPT 登录，请先完成一次官方登录');
+  }
+
+  let stopped = null;
+  let authCleared = false;
+  try {
+    if (refreshInFlight) await refreshInFlight;
+    stopped = await stopCodexDesktopApp();
+    if (!stopped.ok) throw new Error(stopped.message || '无法安全关闭 Codex 桌面端');
+    const synced = await syncCurrentAuthToStore();
+    if (!synced.currentAccount) {
+      throw new Error('保存当前账号认证失败，未清除现有登录');
+    }
+
+    await fs.rm(AUTH_PATH, { force: true });
+    authCleared = true;
+    const launched = await launchCodexDesktopApp();
+    return {
+      ok: launched.ok,
+      account: accountView(synced.currentAccount, synced.currentAccount.accountKey),
+      stopped,
+      launched,
+      message: launched.ok
+        ? '已保存当前账号并重新打开 Codex，请登录要添加的新账号，然后返回本工具导入'
+        : '已保存当前账号并清除活动登录，请手动打开 Codex 登录新账号'
+    };
+  } catch (error) {
+    if (stopped?.runningBefore && !authCleared) {
+      await launchCodexDesktopApp();
+    }
+    throw error;
+  } finally {
+    authTransitionInProgress = false;
+  }
 }
 
 async function deleteAccount(id) {
+  if (authTransitionInProgress) throw new Error('账号认证正在切换，请稍后再删除');
   const store = await loadAccountsStore();
   const nextAccounts = store.accounts.filter((account) => account.id !== id);
   await saveAccountsStore({ version: 1, accounts: nextAccounts });
@@ -1776,6 +1935,15 @@ function createWebWindow() {
 }
 
 async function refreshUsage(reason = 'manual') {
+  if (authTransitionInProgress && reason !== 'switch-account') return getViewSnapshot();
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = refreshUsageInternal(reason).finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function refreshUsageInternal(reason = 'manual') {
   const currentAuthJson = await readJson(AUTH_PATH, null);
   const local = parseCodexAuth(currentAuthJson);
   const previousTokenUsage = state.snapshot?.tokenUsage;
@@ -1960,8 +2128,9 @@ app.on('window-all-closed', () => {
 ipcMain.handle('usage:get', () => getViewSnapshot());
 ipcMain.handle('usage:refresh', () => refreshUsage('manual'));
 ipcMain.handle('usage:open-web', () => openWebWindow());
+ipcMain.handle('accounts:prepare-add', () => prepareAddAccount());
 ipcMain.handle('accounts:import-current', () => importCurrentAccount());
-ipcMain.handle('accounts:switch', (_event, id) => switchAccount(id));
+ipcMain.handle('accounts:switch', (_event, id, strategy) => switchAccount(id, strategy));
 ipcMain.handle('accounts:delete', (_event, id) => deleteAccount(id));
 ipcMain.handle('codex:status', () => getCodexAppStatus());
 ipcMain.handle('codex:restart', () => restartCodexApp());

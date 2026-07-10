@@ -32,7 +32,9 @@ const els = {
   lastSyncedText: document.getElementById('lastSyncedText'),
   currentAccountText: document.getElementById('currentAccountText'),
   currentTierPill: document.getElementById('currentTierPill'),
+  prepareAddAccountButton: document.getElementById('prepareAddAccountButton'),
   importAccountButton: document.getElementById('importAccountButton'),
+  accountFlowStatus: document.getElementById('accountFlowStatus'),
   accountsList: document.getElementById('accountsList'),
   resetCardsTitle: document.getElementById('resetCardsTitle'),
   cardCountText: document.getElementById('cardCountText'),
@@ -569,6 +571,15 @@ function setSwitchStatus(message, tone = '') {
   els.confirmStatus.classList.toggle('is-error', tone === 'error');
 }
 
+function setAccountFlowStatus(message, tone = '') {
+  els.accountFlowStatus.hidden = !message;
+  els.accountFlowStatus.textContent = message || '';
+  els.accountFlowStatus.classList.toggle('is-pending', tone === 'pending');
+  els.accountFlowStatus.classList.toggle('is-success', tone === 'success');
+  els.accountFlowStatus.classList.toggle('is-error', tone === 'error');
+  schedulePanelHeightResize();
+}
+
 function setPricingStatus(message, tone = '') {
   els.pricingStatus.hidden = !message;
   els.pricingStatus.textContent = message || '';
@@ -665,8 +676,8 @@ function openSwitchDialog(account) {
   state.pendingSwitchAccount = account;
   state.switchPhase = 'choice';
   els.confirmTitle.textContent = `切换到 ${account.nickname || account.username || '该账号'}？`;
-  els.confirmBody.textContent = '手动切换仅替换 auth.json，需要你随后重启 Codex；自动切换会在替换后尝试自动重启 Codex。';
-  setSwitchStatus('请选择切换方式，两种方式都不会自动轮换账号。');
+  els.confirmBody.textContent = '项目、任务、会话、插件和配置保持共用。自动切换会关闭完整 Codex 桌面端，保存当前最新认证，切换账号后再重新打开。';
+  setSwitchStatus('推荐自动切换；手动切换要求你先完全退出 Codex 桌面端。');
   setSwitchActions('choice');
   els.confirmDialog.hidden = false;
   schedulePanelHeightResize();
@@ -809,22 +820,49 @@ els.savePricingButton.addEventListener('click', () => {
     schedulePanelHeightResize();
   }
 });
+els.prepareAddAccountButton.addEventListener('click', async () => {
+  const confirmed = window.confirm(
+    '添加账号会关闭并重新打开 Codex。当前账号的最新认证会先保存，只清除活动 auth.json；项目、任务、会话和配置不会删除。是否继续？'
+  );
+  if (!confirmed) return;
+  setButtonBusy(els.prepareAddAccountButton, '准备中...', '+ 添加账号');
+  setAccountFlowStatus('正在关闭 Codex 并保存当前账号认证...', 'pending');
+  try {
+    const result = await window.codexUsage.prepareAddAccount();
+    setAccountFlowStatus(result?.message || '请在 Codex 登录新账号，完成后返回本工具导入。', result?.ok ? 'success' : 'error');
+    els.prepareAddAccountButton.textContent = result?.ok ? '等待新账号登录' : '请手动打开 Codex';
+  } catch (error) {
+    setAccountFlowStatus(`准备添加账号失败：${String(error?.message || error || '未知错误')}`, 'error');
+    els.prepareAddAccountButton.textContent = '准备失败';
+  } finally {
+    els.prepareAddAccountButton.disabled = false;
+    setTimeout(() => {
+      if (!els.prepareAddAccountButton.disabled) els.prepareAddAccountButton.textContent = '+ 添加账号';
+    }, 3000);
+  }
+});
+
 els.importAccountButton.addEventListener('click', async () => {
-  setButtonBusy(els.importAccountButton, '导入中...', '+ 导入当前账号');
+  setButtonBusy(els.importAccountButton, '导入中...', '导入当前账号');
+  setAccountFlowStatus('正在读取当前 Codex 登录并更新账号档案...', 'pending');
   try {
     const result = await window.codexUsage.importCurrentAccount();
     state.snapshot = snapshotFromResult(result);
     render();
     els.importAccountButton.textContent = result?.status === 'updated' ? '已导入，数据已更新' : '已导入当前账号';
+    setAccountFlowStatus(
+      result?.status === 'updated' ? '当前账号认证已更新。' : '新账号已保存，可以安全切换。',
+      'success'
+    );
     setTimeout(() => {
-      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '+ 导入当前账号';
+      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '导入当前账号';
     }, 1800);
   } catch (error) {
     els.importAccountButton.textContent = '导入失败';
+    setAccountFlowStatus(`导入失败：${String(error?.message || error || '未知错误')}`, 'error');
     setTimeout(() => {
-      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '+ 导入当前账号';
+      if (!els.importAccountButton.disabled) els.importAccountButton.textContent = '导入当前账号';
     }, 1800);
-    console.error(error);
   } finally {
     els.importAccountButton.disabled = false;
   }
@@ -835,9 +873,14 @@ async function performAccountSwitch(strategy) {
   if (!account) return;
   state.switchPhase = 'switching';
   setSwitchActions('busy', strategy);
-  setSwitchStatus('正在替换 auth.json 并刷新账号信息...', 'pending');
+  setSwitchStatus(
+    strategy === 'auto'
+      ? '正在关闭完整 Codex 桌面端、保存当前最新认证并切换账号...'
+      : '正在保存当前最新认证并替换活动 auth.json...',
+    'pending'
+  );
   try {
-    const result = await window.codexUsage.switchAccount(account.id);
+    const result = await window.codexUsage.switchAccount(account.id, strategy);
     state.snapshot = snapshotFromResult(result);
     render();
     const displayName = accountDisplayName(result?.account || account);
@@ -846,39 +889,18 @@ async function performAccountSwitch(strategy) {
       state.switchPhase = 'done';
       els.confirmTitle.textContent = '账号已切换';
       els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
-      setSwitchStatus('请手动重启 Codex，使新账号在后续会话中生效。', 'success');
+      setSwitchStatus('当前认证已保存并切换。现在可以打开 Codex；项目和任务状态保持共用。', 'success');
       setSwitchActions('done');
       return;
     }
 
-    setSwitchStatus('账号已切换，正在检测并重启 Codex...', 'pending');
-    const codexStatus = await window.codexUsage.getCodexStatus();
-    if (!codexStatus?.running) {
-      state.switchPhase = 'done';
-      els.confirmTitle.textContent = '自动切换完成';
-      els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
-      setSwitchStatus('未检测到正在运行的 Codex；下次启动时会使用新账号。', 'success');
-      setSwitchActions('done');
-      return;
-    }
-
-    if (!codexStatus.canAutoRestart) {
-      state.switchPhase = 'done';
-      els.confirmTitle.textContent = '账号已切换';
-      els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
-      setSwitchStatus('无法定位 Codex 的启动路径，请手动重启 Codex。', 'error');
-      setSwitchActions('done');
-      return;
-    }
-
-    setSwitchStatus('账号已切换，正在关闭并重新打开 Codex...', 'pending');
-    const restartResult = await window.codexUsage.restartCodex();
+    const restartResult = result?.restart;
     state.switchPhase = 'done';
     els.confirmTitle.textContent = restartResult?.ok ? '自动切换完成' : '账号已切换';
     els.confirmBody.textContent = `当前账号已切换为 ${displayName}。`;
     setSwitchStatus(restartResult?.ok
-      ? (restartResult.message || 'Codex 已重新启动，新账号将在后续会话中生效。')
-      : (restartResult?.message || 'Codex 自动重启失败，请手动重启。'), restartResult?.ok ? 'success' : 'error');
+      ? `${restartResult.message || 'Codex 已重新启动'}；项目、任务、会话和配置继续共用。`
+      : (restartResult?.message || '认证已切换，但 Codex 自动启动失败，请手动打开。'), restartResult?.ok ? 'success' : 'error');
     setSwitchActions('done');
   } catch (error) {
     state.switchPhase = 'choice';

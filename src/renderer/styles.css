@@ -401,6 +401,18 @@ svg {
   line-height: 1.2;
 }
 
+.account-import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.switch-status.account-flow-status {
+  margin: 0 0 8px;
+}
+
 .accounts-section,
 .cards-section,
 .local-section {

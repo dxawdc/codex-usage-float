@@ -54,10 +54,14 @@
             <div class="section-title">
               <div class="accounts-title-inline">
                 <h2>账号信息</h2>
-                <span>手动切换，仅替换 auth.json · 账号数据存在延迟</span>
+                <span>项目、任务与配置共用 · 仅切换登录认证</span>
               </div>
-              <button id="importAccountButton" class="mini-button">+ 导入当前账号</button>
+              <div class="account-import-actions">
+                <button id="prepareAddAccountButton" class="mini-button">+ 添加账号</button>
+                <button id="importAccountButton" class="mini-button">导入当前账号</button>
+              </div>
             </div>
+            <div id="accountFlowStatus" class="switch-status account-flow-status" hidden></div>
             <div id="accountsList" class="accounts-list"></div>
           </section>
 
@@ -126,7 +130,7 @@
         <div id="confirmDialog" class="confirm-backdrop" hidden>
           <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
             <h2 id="confirmTitle">切换账号？</h2>
-            <p id="confirmBody">会替换当前 auth.json，已运行的 Codex 会话可能需要新开 turn 或重启。</p>
+            <p id="confirmBody">项目、任务、会话与配置保持共用，只切换当前登录认证。</p>
             <div id="confirmStatus" class="switch-status" hidden></div>
             <div class="confirm-actions">
               <button id="cancelSwitchButton" class="text-button ghost">取消</button>
