@@ -1,13 +1,18 @@
-const { app, BrowserWindow, ipcMain, screen, shell, session, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, safeStorage, net } = require('electron');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs/promises');
-const { execFile } = require('child_process');
+const { readJson, writeJson } = require('./lib/json-store');
+const { createAccountVault } = require('./lib/account-vault');
+const { mapWithConcurrency } = require('./lib/async-utils');
+const { createCodexProcessManager } = require('./lib/codex-process-manager');
+const { mergePatch, mergeSparse } = require('./lib/object-utils');
+const { AuthRequestError, createJsonFetcher, throwForAuthFailure } = require('./lib/usage-http');
+const { createTokenLogCache } = require('./lib/token-log-cache');
 
 const APP_URL = 'https://chatgpt.com';
 const GITHUB_REPO_URL = 'https://github.com/dxawdc/codex-usage-float';
-const CODEX_DESKTOP_APP_ID = 'OpenAI.Codex_2p2nqsd0c76g0!App';
 const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const CODEX_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'sessions');
 const CODEX_ARCHIVED_SESSIONS_PATH = path.join(os.homedir(), '.codex', 'archived_sessions');
@@ -24,18 +29,33 @@ const PANEL_WIDTH = 560;
 const PANEL_HEIGHT = 720;
 const PANEL_GAP = 12;
 const PANEL_EDGE_PADDING = 12;
-const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 const TOKEN_FINGERPRINT_VERSION = 4;
+const STORED_ACCOUNT_REFRESH_CONCURRENCY = 3;
+const REMOTE_HOST_SUFFIXES = ['chatgpt.com', 'openai.com'];
+const SELF_TEST_MODE = process.argv.includes('--self-test');
+
+const accountVault = createAccountVault(safeStorage);
+const codexProcessManager = createCodexProcessManager();
+const fetchJson = createJsonFetcher(net);
+const { loadTokenLogs } = createTokenLogCache({
+  emptyTokenTotals,
+  normalizeTokenModel,
+  parseTokenTotals,
+  subtractTokenTotals,
+  hasTokenTotals,
+  rateLimitFingerprint,
+  identityKey
+});
 
 let floatWindow;
 let webWindow;
+let webWindowAccountKey = null;
 let refreshTimer;
 let refreshInFlight = null;
 let authTransitionInProgress = false;
 let panelState = { open: false, side: 'right', orbX: 0, orbY: 0 };
-let config = { windowSize: 116 };
+let config = { windowSize: 116, refreshIntervalMinutes: 30 };
 let state = createEmptyState();
-const seenRequestIds = new Set();
 
 function configPath() {
   return path.join(app.getPath('userData'), 'config.json');
@@ -53,144 +73,45 @@ function debugPath() {
   return path.join(app.getPath('userData'), 'last-capture.json');
 }
 
-function runPowerShell(script, timeoutMs = 10000) {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      { windowsHide: true, timeout: timeoutMs },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(String(stderr || error.message || error).trim()));
-          return;
-        }
-        resolve(String(stdout || '').trim());
-      }
-    );
-  });
-}
-
-function codexDesktopProcessFilterScript() {
-  return `
-    Get-CimInstance Win32_Process | Where-Object {
-      $_.Name -eq 'ChatGPT.exe' -and
-      $_.ExecutablePath -match '\\\\WindowsApps\\\\OpenAI\\.Codex_[^\\\\]+\\\\app\\\\ChatGPT\\.exe$'
-    }
-  `;
-}
-
-function normalizeProcessList(jsonText) {
-  if (!jsonText) return [];
-  try {
-    const parsed = JSON.parse(jsonText);
-    return (Array.isArray(parsed) ? parsed : [parsed])
-      .filter(Boolean)
-      .map((item) => ({
-        processId: Number(item.ProcessId || item.processId),
-        name: item.Name || item.name || '',
-        executablePath: item.ExecutablePath || item.executablePath || ''
-      }))
-      .filter((item) => Number.isFinite(item.processId));
-  } catch {
-    return [];
-  }
-}
-
 async function getCodexAppStatus() {
-  if (process.platform !== 'win32') {
-    return { platform: process.platform, running: false, count: 0, processes: [], canAutoRestart: false };
+  return codexProcessManager.getStatus();
+}
+
+async function waitForFileStable(file, timeoutMs = 2500) {
+  const deadline = Date.now() + timeoutMs;
+  let previous = null;
+  let stableChecks = 0;
+  while (Date.now() < deadline) {
+    let signature = 'missing';
+    try {
+      const stat = await fs.stat(file);
+      signature = `${stat.size}:${stat.mtimeMs}`;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (signature === previous) stableChecks += 1;
+    else stableChecks = 0;
+    if (stableChecks >= 3) return true;
+    previous = signature;
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  const stdout = await runPowerShell(`
-    $items = @(${codexDesktopProcessFilterScript()})
-    $items | Select-Object ProcessId, Name, ExecutablePath | ConvertTo-Json -Compress
-  `, 8000);
-  const processes = normalizeProcessList(stdout);
-  return {
-    platform: process.platform,
-    running: processes.length > 0,
-    count: processes.length,
-    canAutoRestart: true,
-    processes
-  };
+  return false;
 }
 
 async function stopCodexDesktopApp() {
-  if (process.platform !== 'win32') {
-    return { ok: false, runningBefore: false, stopped: false, message: '当前平台暂不支持自动关闭 Codex' };
-  }
-  const stdout = await runPowerShell(`
-    $items = @(${codexDesktopProcessFilterScript()})
-    if ($items.Count -eq 0) {
-      @{ ok = $true; runningBefore = $false; stopped = $true; graceful = $true; count = 0 } | ConvertTo-Json -Compress
-      exit 0
-    }
-    $ids = @($items | ForEach-Object { [int]$_.ProcessId })
-    $roots = @($items | Where-Object { $ids -notcontains [int]$_.ParentProcessId })
-    foreach ($item in $roots) {
-      try {
-        $process = Get-Process -Id ([int]$item.ProcessId) -ErrorAction Stop
-        if ($process.MainWindowHandle -ne 0) {
-          [void]$process.CloseMainWindow()
-        }
-      } catch {}
-    }
-    $deadline = (Get-Date).AddSeconds(5)
-    do {
-      Start-Sleep -Milliseconds 250
-      $remaining = @(${codexDesktopProcessFilterScript()})
-    } while ($remaining.Count -gt 0 -and (Get-Date) -lt $deadline)
-    $graceful = $remaining.Count -eq 0
-    if (-not $graceful) {
-      foreach ($item in $remaining) {
-        Stop-Process -Id ([int]$item.ProcessId) -Force -ErrorAction SilentlyContinue
-      }
-      Start-Sleep -Milliseconds 500
-    }
-    @{ ok = $true; runningBefore = $true; stopped = $true; graceful = $graceful; count = $items.Count } | ConvertTo-Json -Compress
-  `, 15000);
-  try {
-    return JSON.parse(stdout);
-  } catch {
-    return { ok: true, runningBefore: true, stopped: true, graceful: false };
-  }
+  const result = await codexProcessManager.stop();
+  if (!result.ok) return result;
+  const authStable = await waitForFileStable(AUTH_PATH);
+  return {
+    ...result,
+    ok: Boolean(result.ok && authStable),
+    authStable,
+    message: authStable ? result.message : 'Codex 已关闭，但认证文件仍在变化，请稍后重试'
+  };
 }
 
 async function launchCodexDesktopApp() {
-  if (process.platform !== 'win32') {
-    return { ok: false, restarted: false, message: '当前平台暂不支持自动启动 Codex' };
-  }
-  try {
-    const stdout = await runPowerShell(`
-      Start-Process -FilePath 'explorer.exe' -ArgumentList 'shell:AppsFolder\\${CODEX_DESKTOP_APP_ID}' | Out-Null
-      $deadline = (Get-Date).AddSeconds(10)
-      do {
-        Start-Sleep -Milliseconds 250
-        $items = @(${codexDesktopProcessFilterScript()})
-      } while ($items.Count -eq 0 -and (Get-Date) -lt $deadline)
-      @{ ok = ($items.Count -gt 0); restarted = ($items.Count -gt 0); count = $items.Count } | ConvertTo-Json -Compress
-    `, 15000);
-    const result = JSON.parse(stdout);
-    return result.ok
-      ? { ...result, message: 'Codex 已重新启动' }
-      : { ...result, message: '未检测到 Codex 重新启动，请手动打开应用' };
-  } catch (error) {
-    return {
-      ok: false,
-      restarted: false,
-      message: `自动启动 Codex 失败：${String(error?.message || error || '未知错误')}`
-    };
-  }
-}
-
-async function restartCodexApp() {
-  const stopped = await stopCodexDesktopApp();
-  const launched = await launchCodexDesktopApp();
-  return {
-    ...launched,
-    runningBefore: stopped.runningBefore,
-    stopped: stopped.stopped,
-    graceful: stopped.graceful
-  };
+  return codexProcessManager.launch();
 }
 
 function createEmptyState() {
@@ -207,7 +128,6 @@ function createEmptyState() {
       sourceUrl: ''
     },
     settings: {
-      refreshIntervalMinutes: 30,
       lowUsageThresholdPercent: 20,
       criticalUsageThresholdPercent: 8
     },
@@ -215,56 +135,39 @@ function createEmptyState() {
   };
 }
 
-async function readJson(file, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tempFile = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tempFile, JSON.stringify(value, null, 2), 'utf8');
-  await fs.rename(tempFile, file);
-}
-
-function mergeDefined(base, patch) {
-  const next = Array.isArray(base) ? [...base] : { ...base };
-  for (const [key, value] of Object.entries(patch || {})) {
-    if (value === undefined || value === null || value === '') continue;
-    if (Array.isArray(value)) {
-      next[key] = value;
-    } else if (typeof value === 'object' && !Array.isArray(value)) {
-      next[key] = mergeDefined(next[key] || {}, value);
-    } else {
-      next[key] = value;
-    }
-  }
-  return next;
-}
-
 async function loadState() {
-  config = { ...config, ...(await readJson(configPath(), config)) };
-  state = mergeDefined(createEmptyState(), await readJson(statePath(), createEmptyState()));
+  const warnings = [];
+  try {
+    config = { ...config, ...(await readJson(configPath(), config)) };
+  } catch (error) {
+    warnings.push(`配置文件损坏：${error?.message || error}`);
+  }
+  try {
+    state = mergePatch(createEmptyState(), await readJson(statePath(), createEmptyState()));
+  } catch (error) {
+    state = createEmptyState();
+    warnings.push(`状态文件损坏：${error?.message || error}`);
+  }
+  if (warnings.length) state.snapshot.sourceStatus = warnings.join('；').slice(0, 240);
 }
 
 async function saveState(patch, replaceSnapshotKeys = []) {
-  state = mergeDefined(state, patch);
+  state = mergePatch(state, patch);
   for (const key of replaceSnapshotKeys) {
     if (Object.prototype.hasOwnProperty.call(patch?.snapshot || {}, key)) {
       state.snapshot[key] = patch.snapshot[key];
     }
   }
   await writeJson(statePath(), state);
-  floatWindow?.webContents.send('usage-data', getViewSnapshot());
+  if (floatWindow && !floatWindow.isDestroyed()) {
+    floatWindow.webContents.send('usage-data', getViewSnapshot());
+  }
 }
 
 function getViewSnapshot() {
   const snapshot = state.snapshot || {};
   const fiveHourRemaining = snapshot.usageWindows?.fiveHour?.remainingPercent;
-  const remainingPercent = Number.isFinite(Number(fiveHourRemaining))
+  const remainingPercent = isFiniteNumberValue(fiveHourRemaining)
     ? fiveHourRemaining
     : snapshot.usageRemainingPercent;
   return {
@@ -272,15 +175,15 @@ function getViewSnapshot() {
     windowSize: Number(config.windowSize) || 116,
     statusLevel: statusLevel(remainingPercent),
     hasUsageData:
-      Number.isFinite(Number(snapshot.usageRemainingPercent)) ||
+      isFiniteNumberValue(snapshot.usageRemainingPercent) ||
       Boolean(snapshot.usageWindows?.fiveHour) ||
       Boolean(snapshot.usageWindows?.oneWeek)
   };
 }
 
 function statusLevel(percent) {
+  if (!isFiniteNumberValue(percent)) return 'unknown';
   const value = Number(percent);
-  if (!Number.isFinite(value)) return 'unknown';
   if (value <= Number(state.settings?.criticalUsageThresholdPercent || 8)) return 'critical';
   if (value <= Number(state.settings?.lowUsageThresholdPercent || 20)) return 'low';
   return 'ok';
@@ -398,6 +301,7 @@ function extractProfileIdentity(payload) {
   );
   const username = normalizeProfileUsername(firstClean(
     getPathValue(payload, 'username'),
+    getPathValue(payload, 'email'),
     getPathValue(payload, 'user_name'),
     getPathValue(payload, 'userName'),
     getPathValue(payload, 'handle'),
@@ -405,15 +309,18 @@ function extractProfileIdentity(payload) {
     getPathValue(payload, 'profile.user_name'),
     getPathValue(payload, 'profile.userName'),
     getPathValue(payload, 'profile.handle'),
+    getPathValue(payload, 'profile.email'),
     getPathValue(payload, 'user.username'),
     getPathValue(payload, 'user.user_name'),
     getPathValue(payload, 'user.userName'),
     getPathValue(payload, 'user.handle'),
+    getPathValue(payload, 'user.email'),
     getPathValue(payload, 'account.username'),
     getPathValue(payload, 'account.user_name'),
     getPathValue(payload, 'account.userName'),
     getPathValue(payload, 'account.handle'),
-    deepPickByKey(payload, ['username', 'user_name', 'userName', 'handle'])
+    getPathValue(payload, 'account.email'),
+    deepPickByKey(payload, ['username', 'user_name', 'userName', 'handle', 'email'])
   ));
   return {
     nickname,
@@ -493,7 +400,11 @@ function parseCodexAuth(auth) {
 }
 
 async function readLocalCodexAuth() {
-  return parseCodexAuth(await readJson(AUTH_PATH, null));
+  return parseCodexAuth(await readCodexAuthJson());
+}
+
+async function readCodexAuthJson() {
+  return readJson(AUTH_PATH, null, { recoverFromBackup: false });
 }
 
 function identityKey(value) {
@@ -502,18 +413,18 @@ function identityKey(value) {
 }
 
 async function loadAccountsStore() {
-  const store = await readJson(accountsPath(), { version: 1, accounts: [] });
-  return {
-    version: 1,
-    accounts: Array.isArray(store?.accounts) ? store.accounts : []
-  };
+  const rawStore = await readJson(accountsPath(), { version: accountVault.version, accounts: [] });
+  const { store, migrated } = accountVault.openStore(rawStore);
+  if (migrated) await saveAccountsStore(store, { backup: false });
+  return store;
 }
 
-async function saveAccountsStore(store) {
-  await writeJson(accountsPath(), {
-    version: 1,
-    accounts: Array.isArray(store?.accounts) ? store.accounts : []
-  });
+function isFiniteNumberValue(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
+async function saveAccountsStore(store, options = {}) {
+  await writeJson(accountsPath(), accountVault.sealStore(store), options);
 }
 
 function buildStoredAccount(authJson, local, previous = {}) {
@@ -536,6 +447,8 @@ function buildStoredAccount(authJson, local, previous = {}) {
     tokenUsage: previous.tokenUsage || null,
     resetCards: previous.resetCards || [],
     usageError: previous.usageError || null,
+    authStatus: previous.authStatus || 'active',
+    lastValidatedAt: previous.lastValidatedAt || null,
     createdAt: previous.createdAt || now,
     updatedAt: now,
     lastSwitchedAt: previous.lastSwitchedAt || null,
@@ -557,20 +470,20 @@ function accountView(account, currentAccountKey = null) {
     tokenUsage: account.tokenUsage || null,
     isCurrent: Boolean(currentAccountKey && account.accountKey === currentAccountKey),
     usageError: account.usageError || null,
+    authStatus: account.authStatus || (account.authStorageError ? 'needs_reauth' : 'unknown'),
+    lastValidatedAt: account.lastValidatedAt || null,
     lastSyncedAt: account.lastSyncedAt || account.updatedAt || null,
     lastSwitchedAt: account.lastSwitchedAt || null
   };
 }
 
-function accountFromCurrent(local, usage, tokenUsage, resetCards, syncedAt) {
+function accountFromCurrent(local, usage, tokenUsage, resetCards, syncedAt, authStatus = 'active', usageError = null) {
   return {
     id: 'current',
     nickname: local.nickname,
     username: local.username,
     label: accountLabel(local),
     accountKey: local.accountKey,
-    accountId: local.accountId,
-    userId: local.userId,
     planTier: usage?.planTier || local.planTier,
     membershipExpiresAt: usage?.membershipExpiresAt || local.membershipExpiresAt,
     usage: { usageWindows: usage?.usageWindows || {}, resetCards },
@@ -578,33 +491,11 @@ function accountFromCurrent(local, usage, tokenUsage, resetCards, syncedAt) {
     resetCards: resetCards || [],
     tokenUsage: tokenUsage || null,
     isCurrent: true,
+    authStatus,
+    usageError,
+    lastValidatedAt: authStatus === 'active' ? syncedAt : null,
     lastSyncedAt: syncedAt
   };
-}
-
-async function refreshFromLocalAuth() {
-  try {
-    const local = await readLocalCodexAuth();
-    await saveState({
-      snapshot: {
-        planTier: local.planTier,
-        membershipExpiresAt: local.membershipExpiresAt,
-        lastSyncedAt: new Date().toISOString(),
-        sourceStatus: local.planTier
-          ? '已读取本机 Codex 会员信息，等待捕获实时用量'
-          : '未找到 Codex ChatGPT 会员信息'
-      }
-    });
-    return local;
-  } catch {
-    await saveState({
-      snapshot: {
-        lastSyncedAt: new Date().toISOString(),
-        sourceStatus: '读取本机 Codex 登录信息失败'
-      }
-    });
-    return {};
-  }
 }
 
 function flattenValues(value, out = []) {
@@ -773,7 +664,7 @@ function collectUsageWindows(payload) {
 
 function pickNearestUsageWindow(windows, targetSeconds) {
   return windows
-    .filter((window) => Number.isFinite(Number(window.windowSeconds)))
+    .filter((window) => isFiniteNumberValue(window.windowSeconds))
     .sort((a, b) => Math.abs(a.windowSeconds - targetSeconds) - Math.abs(b.windowSeconds - targetSeconds))[0] || null;
 }
 
@@ -818,8 +709,8 @@ function mapResetCreditDetails(payload) {
   return available;
 }
 
-function inferResetCardExpiry(cards = []) {
-  const previous = Array.isArray(state.snapshot?.resetCards) ? state.snapshot.resetCards : [];
+function inferResetCardExpiry(cards = [], previousCards = []) {
+  const previous = Array.isArray(previousCards) ? previousCards : [];
   return cards.map((card) => {
     const prior = previous.find((item) =>
       item?.label === card.label && Number(item?.count) === Number(card.count)
@@ -856,7 +747,7 @@ function mapOfficialUsagePayload(payload, sourceUrl) {
 
 function hasOfficialUsageData(snapshot) {
   return (
-    Number.isFinite(Number(snapshot?.usageRemainingPercent)) ||
+    isFiniteNumberValue(snapshot?.usageRemainingPercent) ||
     Boolean(snapshot?.usageWindows?.fiveHour) ||
     Boolean(snapshot?.usageWindows?.oneWeek)
   );
@@ -1128,33 +1019,39 @@ function propagateFingerprintAssignments(assignments, edges, observedAt) {
   }
 }
 
-function readThreadAccountEvidence(previousAssignments = {}) {
+function readThreadAccountEvidence(previousAssignments = {}, previousLastRowId = 0) {
   const assignments = { ...(previousAssignments || {}) };
+  let lastRowId = Math.max(0, Number(previousLastRowId) || 0);
   let DatabaseSync;
   try {
     ({ DatabaseSync } = require('node:sqlite'));
   } catch {
-    return assignments;
+    return { assignments, lastRowId };
   }
 
   let database;
   try {
     database = new DatabaseSync(CODEX_LOGS_DB_PATH, { readOnly: true });
+    const latest = database.prepare('select coalesce(max(rowid), 0) as max_row_id from logs').get();
+    const maxRowId = Math.max(lastRowId, Number(latest?.max_row_id) || 0);
     const rows = database.prepare(`
-      select thread_id, ts, feedback_log_body
+      select rowid, thread_id, ts, feedback_log_body
       from logs
-      where thread_id is not null
+      where rowid > ? and rowid <= ?
+        and thread_id is not null
         and target = 'codex_client::transport'
         and feedback_log_body like '%chatgpt_account_id%'
-    `).all();
+      order by rowid asc
+    `).all(lastRowId, maxRowId);
     const candidates = new Map();
     for (const row of rows) {
       const normalized = String(row.feedback_log_body || '').replace(/\\\"/g, '"').replace(/\\n/g, ' ');
       const matches = [...normalized.matchAll(/"chatgpt_account_id"\s*:\s*"([A-Za-z0-9_-]{8,})"/gi)];
       if (!matches.length) continue;
       const candidate = candidates.get(row.thread_id) || { keys: new Set(), observedAt: new Set() };
+      if (assignments[row.thread_id]?.accountKey) candidate.keys.add(assignments[row.thread_id].accountKey);
       for (const match of matches) candidate.keys.add(identityKey(match[1]));
-      if (Number.isFinite(Number(row.ts))) candidate.observedAt.add(new Date(Number(row.ts) * 1000).toISOString());
+      if (isFiniteNumberValue(row.ts)) candidate.observedAt.add(new Date(Number(row.ts) * 1000).toISOString());
       candidates.set(row.thread_id, candidate);
     }
     for (const [threadId, candidate] of candidates) {
@@ -1164,14 +1061,22 @@ function readThreadAccountEvidence(previousAssignments = {}) {
           source: 'local-log',
           observedAt: [...candidate.observedAt].sort()
         };
+      } else if (candidate.keys.size > 1) {
+        assignments[threadId] = {
+          accountKey: null,
+          ambiguous: true,
+          source: 'local-log',
+          observedAt: [...candidate.observedAt].sort()
+        };
       }
     }
+    lastRowId = maxRowId;
   } catch {
-    return assignments;
+    return { assignments, lastRowId };
   } finally {
     database?.close();
   }
-  return assignments;
+  return { assignments, lastRowId };
 }
 
 async function collectTokenUsageSnapshot({
@@ -1180,6 +1085,7 @@ async function collectTokenUsageSnapshot({
   accountId = null,
   scopeStartedAt = null,
   previousAssignments = {},
+  previousEvidenceLastRowId = 0,
   previousFingerprints = {},
   previousFingerprintVersion = null,
   currentWeeklyResetAt = null
@@ -1188,7 +1094,8 @@ async function collectTokenUsageSnapshot({
   const scopeStart = Date.parse(scopeStartedAt);
   const currentUserKey = identityKey(userId);
   const currentAccountKey = identityKey(accountId) || accountKey;
-  const accountAssignments = readThreadAccountEvidence(previousAssignments);
+  const evidence = readThreadAccountEvidence(previousAssignments, previousEvidenceLastRowId);
+  const accountAssignments = evidence.assignments;
   const fingerprintAssignments = previousFingerprintVersion === TOKEN_FINGERPRINT_VERSION
     ? JSON.parse(JSON.stringify(previousFingerprints || {}))
     : {};
@@ -1209,7 +1116,7 @@ async function collectTokenUsageSnapshot({
   let duplicateEventCount = 0;
   let unassignedEventCount = 0;
   let fingerprintMatchedEventCount = 0;
-  let loginScopeMatchedEventCount = 0;
+  let sessionMatchedEventCount = 0;
   let explicitIdentityEventCount = 0;
   let latestEventAt = null;
   const files = [
@@ -1217,46 +1124,20 @@ async function collectTokenUsageSnapshot({
     ...(await collectJsonlFiles(CODEX_ARCHIVED_SESSIONS_PATH))
   ];
 
+  const loadedLogs = await loadTokenLogs(files);
   const events = [];
-  for (const file of files) {
-    const sessionId = sessionIdFromPath(file);
+  for (const log of loadedLogs.logs) {
+    const sessionId = sessionIdFromPath(log.file);
     const sessionAssignment = sessionId ? accountAssignments[sessionId] : null;
-    let previousTotal = emptyTokenTotals();
-    let previousFingerprint = null;
-    let contents;
-    try {
-      contents = await fs.readFile(file, 'utf8');
-    } catch {
-      continue;
-    }
-    for (const line of contents.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      let root;
-      try {
-        root = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (root?.type !== 'event_msg' || root?.payload?.type !== 'token_count') continue;
-      const timestamp = Date.parse(root.timestamp);
-      const cumulative = parseTokenTotals(root.payload?.info?.total_token_usage);
-      const last = parseTokenTotals(root.payload?.info?.last_token_usage);
-      if (!Number.isFinite(timestamp) || (!cumulative && !last)) continue;
-      const delta = cumulative ? subtractTokenTotals(cumulative, previousTotal) : last;
-      if (cumulative) previousTotal = cumulative;
-      if (!hasTokenTotals(delta)) duplicateEventCount += 1;
-
-      const rateLimits = root.payload?.rate_limits;
-      const fingerprint = rateLimitFingerprint(rateLimits?.secondary?.resets_at);
+    duplicateEventCount += log.duplicateEventCount;
+    for (const normalizedEvent of log.events) {
+      const { timestamp, delta, fingerprint, previousFingerprint, eventAccountKey, eventUserKey } = normalizedEvent;
       if (fingerprint && previousFingerprint && fingerprint !== previousFingerprint) {
         const previousResetAt = Date.parse(previousFingerprint);
         if (Number.isFinite(previousResetAt) && previousResetAt <= timestamp + 10 * 60 * 1000) {
           addFingerprintEdge(fingerprintEdges, previousFingerprint, fingerprint);
         }
       }
-      if (fingerprint) previousFingerprint = fingerprint;
-      const eventAccountKey = identityKey(rateLimits?.account_id);
-      const eventUserKey = identityKey(rateLimits?.user_id);
       events.push({
         timestamp,
         delta,
@@ -1272,7 +1153,7 @@ async function collectTokenUsageSnapshot({
           fingerprint,
           sessionAssignment.accountKey,
           'local-log',
-          root.timestamp
+          normalizedEvent.timestampText
         );
       }
     }
@@ -1297,9 +1178,7 @@ async function collectTokenUsageSnapshot({
         if (belongsToCurrentAccount) fingerprintMatchedEventCount += 1;
       } else if (sessionAssignment?.accountKey && isNearEvidence(timestamp, sessionAssignment)) {
         belongsToCurrentAccount = sessionAssignment.accountKey === currentAccountKey;
-      } else if (Number.isFinite(scopeStart) && timestamp >= scopeStart) {
-        belongsToCurrentAccount = true;
-        loginScopeMatchedEventCount += 1;
+        if (belongsToCurrentAccount) sessionMatchedEventCount += 1;
       }
       if (belongsToCurrentAccount !== true) {
         if (belongsToCurrentAccount === null) unassignedEventCount += 1;
@@ -1318,6 +1197,7 @@ async function collectTokenUsageSnapshot({
     accountKey,
     scopeStartedAt: Number.isFinite(scopeStart) ? new Date(scopeStart).toISOString() : null,
     accountAssignments,
+    evidenceLastRowId: evidence.lastRowId,
     fingerprintAssignments,
     fingerprintVersion: TOKEN_FINGERPRINT_VERSION,
     trackedAccountCount: new Set([
@@ -1327,13 +1207,22 @@ async function collectTokenUsageSnapshot({
     ].filter(Boolean)).size,
     fingerprintCount: Object.values(fingerprintAssignments).filter((item) => !item?.ambiguous).length,
     conflictingFingerprintCount: Object.values(fingerprintAssignments).filter((item) => item?.ambiguous).length,
-    sourceFileCount: files.length,
+    sourceFileCount: loadedLogs.logs.length,
+    failedFileCount: loadedLogs.failedFileCount,
     eventCount,
     duplicateEventCount,
     unassignedEventCount,
     fingerprintMatchedEventCount,
-    loginScopeMatchedEventCount,
+    loginScopeMatchedEventCount: 0,
+    sessionMatchedEventCount,
     explicitIdentityEventCount,
+    attributionConfidence: explicitIdentityEventCount > 0
+      ? 'high'
+      : fingerprintMatchedEventCount + sessionMatchedEventCount > 0
+        ? 'medium'
+        : unassignedEventCount > 0
+          ? 'low'
+          : 'unknown',
     latestEventAt: latestEventAt ? new Date(latestEventAt).toISOString() : null,
     last24h: windows.last24h.total,
     last7d: windows.last7d.total,
@@ -1349,8 +1238,6 @@ async function collectLocalTokenSummary() {
     last7d: { start: nowMs - 7 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 },
     last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 }
   };
-  let sourceFileCount = 0;
-  let failedFileCount = 0;
   let scannedEventCount = 0;
   let duplicateEventCount = 0;
   let latestEventAt = null;
@@ -1359,45 +1246,19 @@ async function collectLocalTokenSummary() {
     ...(await collectJsonlFiles(CODEX_ARCHIVED_SESSIONS_PATH))
   ];
 
-  for (const file of files) {
-    sourceFileCount += 1;
-    let previousTotal = emptyTokenTotals();
-    let currentModel = null;
-    let contents;
-    try {
-      contents = await fs.readFile(file, 'utf8');
-    } catch {
-      failedFileCount += 1;
-      continue;
-    }
-    for (const line of contents.split(/\r?\n/)) {
-      if (!line.trim() || (!line.includes('"token_count"') && !line.includes('"turn_context"'))) continue;
-      let root;
-      try {
-        root = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (root?.type === 'turn_context' && root?.payload?.model) {
-        currentModel = normalizeTokenModel(root.payload.model);
-        continue;
-      }
-      if (root?.type !== 'event_msg' || root?.payload?.type !== 'token_count') continue;
-      const timestamp = Date.parse(root.timestamp);
-      const cumulative = parseTokenTotals(root.payload?.info?.total_token_usage);
-      const last = parseTokenTotals(root.payload?.info?.last_token_usage);
-      if (!Number.isFinite(timestamp) || (!cumulative && !last)) continue;
-      const delta = cumulative ? subtractTokenTotals(cumulative, previousTotal) : last;
-      if (cumulative) previousTotal = cumulative;
+  const loadedLogs = await loadTokenLogs(files);
+  for (const log of loadedLogs.logs) {
+    duplicateEventCount += log.duplicateEventCount;
+    for (const event of log.events) {
+      const { timestamp, delta, model } = event;
       if (!hasTokenTotals(delta)) {
-        duplicateEventCount += 1;
         continue;
       }
       scannedEventCount += 1;
       for (const window of Object.values(windows)) {
         if (timestamp >= window.start) {
           addTokenTotals(window.total, delta);
-          addModelTokenTotals(window.models, currentModel, delta);
+          addModelTokenTotals(window.models, model, delta);
           window.eventCount += 1;
         }
       }
@@ -1433,8 +1294,8 @@ async function collectLocalTokenSummary() {
       last7d: mapWindow(windows.last7d),
       last30d: mapWindow(windows.last30d)
     },
-    sourceFileCount,
-    failedFileCount,
+    sourceFileCount: loadedLogs.logs.length,
+    failedFileCount: loadedLogs.failedFileCount,
     eventCount: scannedEventCount,
     duplicateEventCount,
     latestEventAt: latestEventAt ? new Date(latestEventAt).toISOString() : null
@@ -1452,9 +1313,11 @@ async function fetchResetCreditDetails(local) {
         accept: 'application/json'
       }
     }, 12000);
+    throwForAuthFailure(response);
     if (!response.ok || !response.json) return null;
     return mapResetCreditDetails(response.json);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthRequestError) throw error;
     return null;
   }
 }
@@ -1475,9 +1338,11 @@ async function fetchAccountTokenUsage(local, previous = null) {
       },
       12000
     );
+    throwForAuthFailure(response);
     if (!response.ok || !response.json) return null;
     return mapAccountTokenUsagePayload(response.json, local.accountKey, previous);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthRequestError) throw error;
     return null;
   }
 }
@@ -1486,17 +1351,32 @@ async function refreshStoredAccount(account) {
   const local = parseCodexAuth(account.authJson);
   const now = new Date().toISOString();
   try {
-    const [fetchedUsage, fetchedTokenUsage] = await Promise.all([
+    if (!hasSwitchableAccountAuth(account)) {
+      throw new AuthRequestError(account.authStorageError || '账号凭据不完整，需要重新登录', {
+        code: 'missing_credentials',
+        authStatus: 'needs_reauth'
+      });
+    }
+    const [usageResult, tokenResult] = await Promise.allSettled([
       fetchUsageForLocalAuth(local),
       fetchAccountTokenUsage(local, account.tokenUsage || null)
     ]);
-    const hasFreshUsage = hasOfficialUsageData(fetchedUsage);
-    const usage = hasFreshUsage ? fetchedUsage : account.usage || fetchedUsage;
+    const failures = [usageResult, tokenResult]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    const revokedFailure = failures.find((error) => error?.authStatus === 'needs_reauth') || null;
+    if (revokedFailure || failures.length === 2) throw revokedFailure || failures[0];
+    const fetchedUsage = usageResult.status === 'fulfilled' ? usageResult.value : {};
+    const fetchedTokenUsage = tokenResult.status === 'fulfilled' ? tokenResult.value : null;
+    const { __authValidated, ...fetchedUsageSnapshot } = fetchedUsage;
+    const hasFreshUsage = hasOfficialUsageData(fetchedUsageSnapshot);
+    const usage = hasFreshUsage ? fetchedUsageSnapshot : account.usage || fetchedUsageSnapshot;
     const tokenUsage = fetchedTokenUsage || account.tokenUsage || null;
     const profileIdentity = fetchedTokenUsage?.profileIdentity || account.tokenUsage?.profileIdentity || {};
     const resetCards = hasFreshUsage
-      ? inferResetCardExpiry(fetchedUsage.resetCards || account.resetCards || [])
+      ? inferResetCardExpiry(fetchedUsageSnapshot.resetCards || account.resetCards || [], account.resetCards)
       : account.resetCards || account.usage?.resetCards || [];
+    const validated = Boolean(__authValidated || fetchedTokenUsage);
     return {
       ...account,
       nickname: profileIdentity.nickname || account.nickname || local.nickname,
@@ -1504,12 +1384,14 @@ async function refreshStoredAccount(account) {
       accountKey: local.accountKey || account.accountKey,
       accountId: local.accountId || account.accountId,
       userId: local.userId || account.userId,
-      planTier: fetchedUsage.planTier || account.planTier || local.planTier,
-      membershipExpiresAt: fetchedUsage.membershipExpiresAt || account.membershipExpiresAt || local.membershipExpiresAt,
+      planTier: fetchedUsageSnapshot.planTier || account.planTier || local.planTier,
+      membershipExpiresAt: fetchedUsageSnapshot.membershipExpiresAt || account.membershipExpiresAt || local.membershipExpiresAt,
       usage,
       tokenUsage,
       resetCards,
-      usageError: null,
+      usageError: failures.length ? '部分账号数据暂时无法刷新，正在显示最近一次结果' : null,
+      authStatus: validated ? 'active' : account.authStatus || 'unknown',
+      lastValidatedAt: validated ? now : account.lastValidatedAt,
       updatedAt: now,
       lastSyncedAt: hasFreshUsage || fetchedTokenUsage ? now : account.lastSyncedAt
     };
@@ -1517,35 +1399,50 @@ async function refreshStoredAccount(account) {
     return {
       ...account,
       usageError: String(error?.message || error || '刷新失败').slice(0, 160),
+      authStatus: error?.authStatus || 'stale',
       updatedAt: now
     };
   }
 }
 
-async function refreshAccountsStore({ currentAuthJson = null, currentLocal = null, currentUsage = null, currentTokenUsage = null, currentResetCards = [], syncedAt = null } = {}) {
+async function refreshAccountsStore({
+  currentAuthJson = null,
+  currentLocal = null,
+  currentUsage = null,
+  currentTokenUsage = null,
+  currentResetCards = [],
+  currentAuthStatus = 'active',
+  currentUsageError = null,
+  syncedAt = null
+} = {}) {
   const store = await loadAccountsStore();
   const currentAccountKey = currentLocal?.accountKey || null;
-  const nextAccounts = [];
   let currentAccountWasStored = false;
-  for (const account of store.accounts) {
+  const nextAccounts = await mapWithConcurrency(
+    store.accounts,
+    STORED_ACCOUNT_REFRESH_CONCURRENCY,
+    async (account) => {
     if (currentAccountKey && account.accountKey === currentAccountKey && currentAuthJson) {
       currentAccountWasStored = true;
-      nextAccounts.push(buildStoredAccount(currentAuthJson, {
+      return buildStoredAccount(currentAuthJson, {
         ...currentLocal,
         planTier: currentUsage?.planTier || currentLocal.planTier,
         membershipExpiresAt: currentUsage?.membershipExpiresAt || currentLocal.membershipExpiresAt
       }, {
         ...account,
-        usage: currentUsage || account.usage,
+        usage: hasOfficialUsageData(currentUsage) ? currentUsage : account.usage,
         tokenUsage: currentTokenUsage || account.tokenUsage,
-        resetCards: currentResetCards || account.resetCards,
-        usageError: null,
+        resetCards: Object.prototype.hasOwnProperty.call(currentUsage || {}, 'resetCards')
+          ? currentResetCards
+          : account.resetCards,
+        usageError: currentUsageError,
+        authStatus: currentAuthStatus,
+        lastValidatedAt: currentAuthStatus === 'active' ? syncedAt || account.lastValidatedAt : account.lastValidatedAt,
         lastSyncedAt: syncedAt || account.lastSyncedAt
-      }));
-    } else {
-      nextAccounts.push(await refreshStoredAccount(account));
+      });
     }
-  }
+    return refreshStoredAccount(account);
+  });
   if (currentAccountKey && currentAuthJson && !currentAccountWasStored) {
     nextAccounts.unshift(buildStoredAccount(currentAuthJson, {
       ...currentLocal,
@@ -1555,7 +1452,9 @@ async function refreshAccountsStore({ currentAuthJson = null, currentLocal = nul
       usage: currentUsage || null,
       tokenUsage: currentTokenUsage || null,
       resetCards: currentResetCards || [],
-      usageError: null,
+      usageError: currentUsageError,
+      authStatus: currentAuthStatus,
+      lastValidatedAt: currentAuthStatus === 'active' ? syncedAt || null : null,
       lastSyncedAt: syncedAt || null
     }));
   }
@@ -1567,7 +1466,7 @@ async function refreshAccountsStore({ currentAuthJson = null, currentLocal = nul
     seen.add(key);
     uniqueAccounts.push(account);
   }
-  const nextStore = { version: 1, accounts: uniqueAccounts };
+  const nextStore = { version: accountVault.version, accounts: uniqueAccounts };
   await saveAccountsStore(nextStore);
   return nextStore;
 }
@@ -1582,7 +1481,7 @@ function hasSwitchableAccountAuth(account) {
 }
 
 async function syncCurrentAuthToStore() {
-  const authJson = await readJson(AUTH_PATH, null);
+  const authJson = await readCodexAuthJson();
   const local = parseCodexAuth(authJson);
   const store = await loadAccountsStore();
   if (!authJson || !local.accessToken || !local.accountKey) {
@@ -1591,7 +1490,7 @@ async function syncCurrentAuthToStore() {
 
   const existingIndex = store.accounts.findIndex((account) => account.accountKey === local.accountKey);
   const existing = existingIndex >= 0 ? store.accounts[existingIndex] : {};
-  const account = buildStoredAccount(authJson, local, existing);
+  const account = buildStoredAccount(authJson, local, { ...existing, authStatus: 'active', usageError: null });
   if (existingIndex >= 0) {
     store.accounts[existingIndex] = account;
   } else {
@@ -1603,29 +1502,39 @@ async function syncCurrentAuthToStore() {
 
 async function importCurrentAccount() {
   if (authTransitionInProgress) throw new Error('账号认证正在切换，请稍后再导入');
-  const authJson = await readJson(AUTH_PATH, null);
-  const local = parseCodexAuth(authJson);
-  if (!local.accessToken || !local.accountKey) throw new Error('当前 auth.json 未包含可导入的 Codex ChatGPT 账号');
-  const store = await loadAccountsStore();
-  const existingIndex = store.accounts.findIndex((account) => account.accountKey === local.accountKey);
-  const existing = existingIndex >= 0 ? store.accounts[existingIndex] : {};
-  const account = buildStoredAccount(authJson, local, existing);
-  if (existingIndex >= 0) {
-    store.accounts[existingIndex] = account;
-  } else {
-    store.accounts.unshift(account);
+  authTransitionInProgress = true;
+  let result;
+  try {
+    if (refreshInFlight) await refreshInFlight;
+    const authJson = await readCodexAuthJson();
+    const local = parseCodexAuth(authJson);
+    if (!local.accessToken || !local.accountKey) throw new Error('当前 auth.json 未包含可导入的 Codex ChatGPT 账号');
+    const store = await loadAccountsStore();
+    const existingIndex = store.accounts.findIndex((account) => account.accountKey === local.accountKey);
+    const existing = existingIndex >= 0 ? store.accounts[existingIndex] : {};
+    const account = buildStoredAccount(authJson, local, { ...existing, authStatus: 'active', usageError: null });
+    if (existingIndex >= 0) store.accounts[existingIndex] = account;
+    else store.accounts.unshift(account);
+    await saveAccountsStore(store);
+    result = {
+      account,
+      accountKey: local.accountKey,
+      status: existingIndex >= 0 ? 'updated' : 'created'
+    };
+  } finally {
+    authTransitionInProgress = false;
   }
-  await saveAccountsStore(store);
   await refreshUsage('import-account');
   return {
     snapshot: getViewSnapshot(),
-    account: accountView(account, local.accountKey),
-    status: existingIndex >= 0 ? 'updated' : 'created'
+    account: accountView(result.account, result.accountKey),
+    status: result.status
   };
 }
 
 async function switchAccount(id, strategy = 'manual') {
   if (authTransitionInProgress) throw new Error('已有账号认证流程正在进行');
+  if (typeof id !== 'string' || !id || id.length > 100) throw new Error('账号标识无效');
   authTransitionInProgress = true;
   const normalizedStrategy = strategy === 'auto' ? 'auto' : 'manual';
   let stopped = null;
@@ -1654,7 +1563,8 @@ async function switchAccount(id, strategy = 'manual') {
       throw new Error('未找到可切换的有效账号授权');
     }
     const now = new Date().toISOString();
-    await writeJson(AUTH_PATH, account.authJson);
+    destroyWebWindow();
+    await writeJson(AUTH_PATH, account.authJson, { backup: false });
     account.lastSwitchedAt = now;
     account.updatedAt = now;
     await saveAccountsStore(synced.store);
@@ -1678,7 +1588,7 @@ async function switchAccount(id, strategy = 'manual') {
         : null
     };
   } catch (error) {
-    if (normalizedStrategy === 'auto' && stopped?.runningBefore && !restart) {
+    if (normalizedStrategy === 'auto' && stopped?.runningBefore && (!restart || !restart.ok)) {
       await launchCodexDesktopApp();
     }
     throw error;
@@ -1690,7 +1600,7 @@ async function switchAccount(id, strategy = 'manual') {
 async function prepareAddAccount() {
   if (authTransitionInProgress) throw new Error('已有账号认证流程正在进行');
   authTransitionInProgress = true;
-  const authJson = await readJson(AUTH_PATH, null);
+  const authJson = await readCodexAuthJson();
   const local = parseCodexAuth(authJson);
   if (!authJson || !local.accessToken || !local.accountKey) {
     authTransitionInProgress = false;
@@ -1708,6 +1618,7 @@ async function prepareAddAccount() {
       throw new Error('保存当前账号认证失败，未清除现有登录');
     }
 
+    destroyWebWindow();
     await fs.rm(AUTH_PATH, { force: true });
     authCleared = true;
     const launched = await launchCodexDesktopApp();
@@ -1732,37 +1643,32 @@ async function prepareAddAccount() {
 
 async function deleteAccount(id) {
   if (authTransitionInProgress) throw new Error('账号认证正在切换，请稍后再删除');
-  const store = await loadAccountsStore();
-  const nextAccounts = store.accounts.filter((account) => account.id !== id);
-  await saveAccountsStore({ version: 1, accounts: nextAccounts });
+  if (typeof id !== 'string' || !id || id.length > 100) throw new Error('账号标识无效');
+  authTransitionInProgress = true;
+  try {
+    if (refreshInFlight) await refreshInFlight;
+    const store = await loadAccountsStore();
+    const local = await readLocalCodexAuth();
+    const target = store.accounts.find((account) => account.id === id);
+    if (target?.accountKey && target.accountKey === local.accountKey) {
+      throw new Error('不能删除当前正在使用的账号，请先切换到其他账号');
+    }
+    const nextAccounts = store.accounts.filter((account) => account.id !== id);
+    await saveAccountsStore({ version: accountVault.version, accounts: nextAccounts });
+  } finally {
+    authTransitionInProgress = false;
+  }
   await refreshUsage('delete-account');
   return getViewSnapshot();
 }
 
-async function fetchJson(url, options = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await net.fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    const text = await response.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
-    }
-    return { ok: response.ok, status: response.status, json, text };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function fetchUsageForLocalAuth(local) {
   if (!local.accessToken || !local.accountId) return {};
-  const resetCardsPromise = fetchResetCreditDetails(local);
+  const resetCardsPromise = fetchResetCreditDetails(local).then(
+    (value) => ({ value, error: null }),
+    (error) => ({ value: null, error })
+  );
+  let authValidated = false;
   for (const url of await resolveUsageUrls()) {
     try {
       const response = await fetchJson(url, {
@@ -1772,14 +1678,18 @@ async function fetchUsageForLocalAuth(local) {
           accept: 'application/json'
         }
       }, 12000);
+      throwForAuthFailure(response);
       if (!response.ok || !response.json) continue;
+      authValidated = true;
       const snapshot = mapOfficialUsagePayload(response.json, url);
       if (hasOfficialUsageData(snapshot)) {
-        const detailedResetCards = await resetCardsPromise;
-        if (detailedResetCards) snapshot.resetCards = detailedResetCards;
-        return snapshot;
+        const resetCardsResult = await resetCardsPromise;
+        if (resetCardsResult.error) throw resetCardsResult.error;
+        if (resetCardsResult.value) snapshot.resetCards = resetCardsResult.value;
+        return { ...snapshot, __authValidated: true };
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof AuthRequestError) throw error;
       // Candidate endpoints can differ across ChatGPT/Codex versions.
     }
   }
@@ -1798,24 +1708,62 @@ async function fetchUsageForLocalAuth(local) {
           accept: 'application/json'
         }
       }, 6000);
+      throwForAuthFailure(response);
       if (!response.ok || !response.json) continue;
-      merged = mergeDefined(merged, extractUsageSnapshot(response.json, url));
-    } catch {
+      authValidated = true;
+      merged = mergeSparse(merged, extractUsageSnapshot(response.json, url));
+    } catch (error) {
+      if (error instanceof AuthRequestError) throw error;
       // Unpublished endpoints may not exist for all accounts or app versions.
     }
   }
-  return merged;
-}
-
-async function fetchWithCodexAuth() {
-  return fetchUsageForLocalAuth(await readLocalCodexAuth());
+  const resetCardsResult = await resetCardsPromise;
+  if (resetCardsResult.error instanceof AuthRequestError) throw resetCardsResult.error;
+  return { ...merged, __authValidated: authValidated };
 }
 
 function shouldCapture(url) {
-  return /chatgpt\.com|openai\.com/.test(url) && /(codex|usage|quota|limit|subscription|account|billing|reset|credit|cap|model)/i.test(url);
+  return isAllowedRemoteUrl(url) && /(codex|usage|quota|limit|subscription|account|billing|reset|credit|cap|model)/i.test(url);
 }
 
-function setupNetworkCapture(win) {
+function isAllowedRemoteUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'https:' && REMOTE_HOST_SUFFIXES.some((suffix) =>
+      parsed.hostname === suffix || parsed.hostname.endsWith(`.${suffix}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function responseIdentityMatchesLocal(payload, local) {
+  if (!payload || !local?.accountKey) return false;
+  const candidateAccount = deepPickByKey(payload, ['chatgpt_account_id', 'account_id', 'accountId']);
+  const candidateUser = deepPickByKey(payload, ['chatgpt_user_id', 'user_id', 'userId', 'sub']);
+  const profile = extractProfileIdentity(payload);
+  const idMatches = [candidateAccount, candidateUser]
+    .filter(Boolean)
+    .some((value) => {
+      const key = identityKey(value);
+      return key === local.accountKey || key === identityKey(local.accountId) || key === identityKey(local.userId);
+    });
+  const emailMatches = Boolean(
+    profile.username && local.username &&
+    normalizeProfileUsername(profile.username) === normalizeProfileUsername(local.username)
+  );
+  return idMatches || emailMatches;
+}
+
+function rememberRequestId(seen, requestId, maxSize = 500) {
+  if (!requestId || seen.has(requestId)) return false;
+  seen.add(requestId);
+  while (seen.size > maxSize) seen.delete(seen.values().next().value);
+  return true;
+}
+
+function setupNetworkCapture(win, expectedAccountKey) {
+  const seenRequestIds = new Set();
   try {
     win.webContents.debugger.attach('1.3');
     win.webContents.debugger.sendCommand('Network.enable');
@@ -1826,8 +1774,7 @@ function setupNetworkCapture(win) {
   win.webContents.debugger.on('message', async (_event, method, params) => {
     if (method !== 'Network.responseReceived') return;
     const url = params?.response?.url || '';
-    if (!shouldCapture(url) || seenRequestIds.has(params.requestId)) return;
-    seenRequestIds.add(params.requestId);
+    if (!shouldCapture(url) || !rememberRequestId(seenRequestIds, params.requestId)) return;
     try {
       const body = await win.webContents.debugger.sendCommand('Network.getResponseBody', {
         requestId: params.requestId
@@ -1835,23 +1782,29 @@ function setupNetworkCapture(win) {
       const text = body?.body || '';
       if (!text || !/[{[]/.test(text[0])) return;
       const json = JSON.parse(text);
+      const activeLocal = await readLocalCodexAuth();
+      if (activeLocal.accountKey !== expectedAccountKey || !responseIdentityMatchesLocal(json, activeLocal)) return;
       const extracted = extractUsageSnapshot(json, url);
       const hasUsefulData =
-        Number.isFinite(Number(extracted.usageRemainingPercent)) ||
+        isFiniteNumberValue(extracted.usageRemainingPercent) ||
         Boolean(extracted.usageResetAt) ||
         Boolean(extracted.resetCards?.length);
       if (!hasUsefulData) return;
       await writeJson(debugPath(), {
         url,
+        accountKey: expectedAccountKey,
         extracted,
         keys: Object.keys(json || {}),
         capturedAt: new Date().toISOString()
       });
       const capturePatch = { ...extracted };
       if (!extracted.resetCards?.length) delete capturePatch.resetCards;
+      const stillActive = await readLocalCodexAuth();
+      if (stillActive.accountKey !== expectedAccountKey) return;
       await saveState({
         snapshot: {
           ...capturePatch,
+          captureAccountKey: expectedAccountKey,
           lastSyncedAt: new Date().toISOString(),
           sourceStatus: '已同步'
         }
@@ -1862,22 +1815,28 @@ function setupNetworkCapture(win) {
   });
 }
 
-async function scrapeVisiblePage() {
-  if (!webWindow || webWindow.isDestroyed()) return {};
+async function scrapeVisiblePage(local) {
+  if (!webWindow || webWindow.isDestroyed() || webWindowAccountKey !== local?.accountKey) return {};
   try {
     const payload = await webWindow.webContents.executeJavaScript(
-      `(() => {
+      `(async () => {
         const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
-        const bodyText = clean(document.body ? document.body.innerText : '');
-        const scripts = Array.from(document.scripts)
-          .map((node) => node.textContent || '')
-          .filter((text) => /codex|usage|quota|subscription|reset|credit|cap|plus|pro/i.test(text))
-          .slice(0, 10)
-          .map((text) => text.slice(0, 120000));
-        return { url: location.href, title: document.title, bodyText, scripts };
+        const bodyText = clean(document.body ? document.body.innerText : '').slice(0, 200000);
+        let sessionIdentity = null;
+        try {
+          const response = await fetch('/api/auth/session', { credentials: 'include' });
+          const data = response.ok ? await response.json() : null;
+          sessionIdentity = data ? {
+            email: data.user?.email || data.email || null,
+            userId: data.user?.id || data.user_id || data.sub || null,
+            accountId: data.account?.id || data.account_id || null
+          } : null;
+        } catch {}
+        return { url: location.href, title: document.title, bodyText, sessionIdentity };
       })()`,
       true
     );
+    if (!responseIdentityMatchesLocal(payload.sessionIdentity, local)) return {};
     const extracted = {};
     const text = `${payload.title} ${payload.bodyText}`;
     const percentMatch = text.match(/(?:remaining|剩余|可用|usage|用量)[^0-9%]{0,30}(\\d+(?:\\.\\d+)?)\\s*%/i);
@@ -1885,6 +1844,7 @@ async function scrapeVisiblePage() {
     const planMatch = text.match(/\\b(plus|pro|team|enterprise|business|free)\\b/i);
     if (planMatch) extracted.planTier = planMatch[1].toLowerCase();
     extracted.sourceUrl = payload.url;
+    extracted.pageIdentityVerified = true;
     return extracted;
   } catch {
     return {};
@@ -1908,30 +1868,80 @@ function createFloatWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
   floatWindow.setAlwaysOnTop(true, 'screen-saver');
+  floatWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  floatWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file:')) event.preventDefault();
+  });
   floatWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-function createWebWindow() {
+function destroyWebWindow() {
+  if (!webWindow || webWindow.isDestroyed()) {
+    webWindow = null;
+    webWindowAccountKey = null;
+    return;
+  }
+  try {
+    if (webWindow.webContents.debugger.isAttached()) webWindow.webContents.debugger.detach();
+  } catch {}
+  webWindow.destroy();
+  webWindow = null;
+  webWindowAccountKey = null;
+}
+
+function createWebWindow(accountKey) {
+  if (!accountKey) return null;
+  const partition = `persist:official-openai-usage-${accountKey}`;
+  webWindowAccountKey = accountKey;
   webWindow = new BrowserWindow({
     width: 1120,
     height: 760,
     show: false,
     title: 'Codex 工具同步',
     webPreferences: {
-      partition: 'persist:official-openai-usage',
+      partition,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
-  setupNetworkCapture(webWindow);
+  webWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  webWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedRemoteUrl(url)) event.preventDefault();
+  });
+  webWindow.webContents.on('will-redirect', (event, url) => {
+    if (!isAllowedRemoteUrl(url)) event.preventDefault();
+  });
+  webWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  webWindow.webContents.session.setPermissionCheckHandler(() => false);
+  setupNetworkCapture(webWindow, accountKey);
   webWindow.loadURL(APP_URL);
   webWindow.webContents.on('did-finish-load', () => {
-    setTimeout(() => refreshUsage('page-load'), 1200);
+    setTimeout(async () => {
+      const local = await readLocalCodexAuth();
+      if (local.accountKey === accountKey) refreshUsage('page-load');
+    }, 1200);
   });
+  webWindow.on('closed', () => {
+    webWindow = null;
+    webWindowAccountKey = null;
+  });
+  return webWindow;
+}
+
+function ensureWebWindowForAccount(accountKey) {
+  if (!accountKey) {
+    destroyWebWindow();
+    return null;
+  }
+  if (webWindow && !webWindow.isDestroyed() && webWindowAccountKey === accountKey) return webWindow;
+  destroyWebWindow();
+  return createWebWindow(accountKey);
 }
 
 async function refreshUsage(reason = 'manual') {
@@ -1944,26 +1954,77 @@ async function refreshUsage(reason = 'manual') {
 }
 
 async function refreshUsageInternal(reason = 'manual') {
-  const currentAuthJson = await readJson(AUTH_PATH, null);
+  const currentAuthJson = await readCodexAuthJson();
   const local = parseCodexAuth(currentAuthJson);
+  if (!local.accountKey || !local.accessToken) {
+    ensureWebWindowForAccount(null);
+    const [accountsStore, localTokenSummary] = await Promise.all([
+      refreshAccountsStore(),
+      collectLocalTokenSummary()
+    ]);
+    const syncedAt = new Date().toISOString();
+    await saveState({
+      snapshot: {
+        planTier: null,
+        membershipExpiresAt: null,
+        usageRemainingPercent: null,
+        usageResetAt: null,
+        usageWindows: {},
+        creditsBalance: null,
+        credits: null,
+        resetCards: [],
+        tokenUsage: null,
+        currentAccount: null,
+        accounts: accountsStore.accounts.map((account) => accountView(account, null)),
+        resetCardsAccountLabel: '--',
+        localTokenSummary,
+        lastSyncedAt: syncedAt,
+        sourceStatus: '等待登录 Codex',
+        sourceUrl: '',
+        captureAccountKey: null,
+        obsoleteStatus: null
+      }
+    }, ['usageWindows', 'tokenUsage', 'accounts', 'currentAccount', 'localTokenSummary', 'resetCards']);
+    return getViewSnapshot();
+  }
+
+  ensureWebWindowForAccount(local.accountKey);
   const previousTokenUsage = state.snapshot?.tokenUsage;
   const sameAccount = Boolean(local.accountKey && previousTokenUsage?.accountKey === local.accountKey);
   const tokenScopeStartedAt = sameAccount
     ? previousTokenUsage.scopeStartedAt || local.authIssuedAt
     : local.authIssuedAt || new Date().toISOString();
-  const [direct, page, accountTokenUsage] = await Promise.all([
-    fetchWithCodexAuth(),
-    scrapeVisiblePage(),
+  const [directResult, pageResult, accountTokenResult] = await Promise.allSettled([
+    fetchUsageForLocalAuth(local),
+    scrapeVisiblePage(local),
     fetchAccountTokenUsage(local, sameAccount ? previousTokenUsage : null)
   ]);
-  const fallback = mergeDefined(
+  const failures = [directResult, accountTokenResult]
+    .filter((result) => result.status === 'rejected')
+    .map((result) => result.reason);
+  const authFailure = failures.find((error) => error instanceof AuthRequestError) || null;
+  const directResultValue = directResult.status === 'fulfilled' ? directResult.value : {};
+  const { __authValidated = false, ...direct } = directResultValue;
+  const page = pageResult.status === 'fulfilled' ? pageResult.value : {};
+  const accountTokenUsage = accountTokenResult.status === 'fulfilled' ? accountTokenResult.value : null;
+  const currentAuthStatus = authFailure?.authStatus === 'needs_reauth'
+    ? 'needs_reauth'
+    : __authValidated || accountTokenUsage
+      ? 'active'
+      : authFailure?.authStatus || 'stale';
+  const currentUsageError = authFailure
+    ? String(authFailure.message || '账号凭据暂时不可用').slice(0, 160)
+    : failures.length
+      ? '部分账号数据暂时无法刷新，正在显示最近一次结果'
+      : null;
+  const fallback = mergeSparse(
     {
       planTier: local.planTier,
       membershipExpiresAt: local.membershipExpiresAt
     },
     page
   );
-  const merged = mergeDefined(fallback, direct);
+  const merged = mergeSparse(fallback, direct);
   const currentWeeklyResetAt = direct.usageWindows?.oneWeek?.resetAt || (
     sameAccount ? state.snapshot?.usageWindows?.oneWeek?.resetAt : null
   );
@@ -1975,6 +2036,7 @@ async function refreshUsageInternal(reason = 'manual') {
       accountId: local.accountId,
       scopeStartedAt: tokenScopeStartedAt,
       previousAssignments: previousTokenUsage?.accountAssignments,
+      previousEvidenceLastRowId: previousTokenUsage?.evidenceLastRowId,
       previousFingerprints: previousTokenUsage?.fingerprintAssignments,
       previousFingerprintVersion: previousTokenUsage?.fingerprintVersion,
       currentWeeklyResetAt
@@ -1997,26 +2059,44 @@ async function refreshUsageInternal(reason = 'manual') {
   };
   const localTokenSummary = await collectLocalTokenSummary();
   const hasUsage =
-    Number.isFinite(Number(merged.usageRemainingPercent)) ||
+    isFiniteNumberValue(merged.usageRemainingPercent) ||
     Boolean(merged.usageWindows?.fiveHour) ||
     Boolean(merged.usageWindows?.oneWeek) ||
     Boolean(merged.resetCards?.length);
-  const statusText = hasUsage
+  const statusText = currentAuthStatus === 'needs_reauth'
+    ? '账号登录已失效，请使用“添加账号”流程重新登录'
+    : currentUsageError
+      ? currentUsageError
+    : hasUsage
     ? '\u5df2\u540c\u6b65'
     : reason === 'manual'
       ? '\u5df2\u5237\u65b0\u4f1a\u5458\u4fe1\u606f\uff1b\u8bf7\u6253\u5f00\u7f51\u9875\u767b\u5f55\u6216\u8fdb\u5165 Codex \u76f8\u5173\u9875\u9762\u4ee5\u6355\u83b7\u7528\u91cf'
       : state.snapshot?.sourceStatus || '\u7b49\u5f85\u6355\u83b7\u5b9e\u65f6\u7528\u91cf';
   const syncedAt = new Date().toISOString();
-  const resetCards = inferResetCardExpiry(merged.resetCards || []);
+  const resetCards = Object.prototype.hasOwnProperty.call(merged, 'resetCards')
+    ? inferResetCardExpiry(merged.resetCards || [], sameAccount ? state.snapshot?.resetCards : [])
+    : sameAccount
+      ? state.snapshot?.resetCards || []
+      : [];
   const accountsStore = await refreshAccountsStore({
     currentAuthJson,
     currentLocal,
     currentUsage: merged,
     currentTokenUsage: tokenUsage,
     currentResetCards: resetCards,
+    currentAuthStatus,
+    currentUsageError,
     syncedAt
   });
-  const currentAccount = accountFromCurrent(currentLocal, merged, tokenUsage, resetCards, syncedAt);
+  const currentAccount = accountFromCurrent(
+    currentLocal,
+    merged,
+    tokenUsage,
+    resetCards,
+    syncedAt,
+    currentAuthStatus,
+    currentUsageError
+  );
   const storedAccountViews = accountsStore.accounts.map((account) => accountView(account, currentLocal.accountKey));
   const accountViews = storedAccountViews.some((account) => account.accountKey === currentLocal.accountKey)
     ? storedAccountViews
@@ -2041,11 +2121,13 @@ async function refreshUsageInternal(reason = 'manual') {
   return getViewSnapshot();
 }
 
-function openWebWindow() {
-  if (!webWindow || webWindow.isDestroyed()) createWebWindow();
-  webWindow.show();
-  webWindow.focus();
-  if (!webWindow.webContents.getURL()) webWindow.loadURL(APP_URL);
+async function openWebWindow() {
+  const local = await readLocalCodexAuth();
+  if (!local.accountKey) throw new Error('请先登录 Codex 账号');
+  const win = ensureWebWindowForAccount(local.accountKey);
+  win.show();
+  win.focus();
+  if (!win.webContents.getURL()) win.loadURL(APP_URL);
 }
 
 function positionPanel(open) {
@@ -2109,37 +2191,64 @@ function resizeOpenPanelHeight(contentHeight) {
 
 function startRefreshTimer() {
   if (refreshTimer) clearInterval(refreshTimer);
-  refreshTimer = setInterval(() => refreshUsage('timer'), REFRESH_INTERVAL_MS);
+  const minutes = Math.max(5, Math.min(Number(config.refreshIntervalMinutes) || 30, 180));
+  refreshTimer = setInterval(() => {
+    refreshUsage('timer').catch(() => {});
+  }, minutes * 60 * 1000);
 }
 
 app.whenReady().then(async () => {
+  if (SELF_TEST_MODE) {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage is unavailable');
+    const status = await getCodexAppStatus();
+    if (process.platform === 'win32' && !status.appId) throw new Error('Codex app id was not detected');
+    app.exit(0);
+    return;
+  }
   app.setAppUserModelId('com.codexusage.float');
   await loadState();
   createFloatWindow();
-  createWebWindow();
-  await refreshUsage('startup');
+  try {
+    await refreshUsage('startup');
+  } catch (error) {
+    await saveState({
+      snapshot: {
+        sourceStatus: `初始化失败：${String(error?.message || error || '未知错误').slice(0, 160)}`,
+        lastSyncedAt: new Date().toISOString()
+      }
+    });
+  }
   startRefreshTimer();
+}).catch((error) => {
+  console.error(error);
+  app.exit(1);
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.handle('usage:get', () => getViewSnapshot());
-ipcMain.handle('usage:refresh', () => refreshUsage('manual'));
-ipcMain.handle('usage:open-web', () => openWebWindow());
-ipcMain.handle('accounts:prepare-add', () => prepareAddAccount());
-ipcMain.handle('accounts:import-current', () => importCurrentAccount());
-ipcMain.handle('accounts:switch', (_event, id, strategy) => switchAccount(id, strategy));
-ipcMain.handle('accounts:delete', (_event, id) => deleteAccount(id));
-ipcMain.handle('codex:status', () => getCodexAppStatus());
-ipcMain.handle('codex:restart', () => restartCodexApp());
-ipcMain.handle('local-token-summary:refresh', async () => {
+function handleTrusted(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
+    if (!senderUrl.startsWith('file:')) throw new Error('拒绝来自非本地页面的操作');
+    return handler(...args);
+  });
+}
+
+handleTrusted('usage:get', () => getViewSnapshot());
+handleTrusted('usage:refresh', () => refreshUsage('manual'));
+handleTrusted('usage:open-web', () => openWebWindow());
+handleTrusted('accounts:prepare-add', () => prepareAddAccount());
+handleTrusted('accounts:import-current', () => importCurrentAccount());
+handleTrusted('accounts:switch', (id, strategy) => switchAccount(id, strategy));
+handleTrusted('accounts:delete', (id) => deleteAccount(id));
+handleTrusted('local-token-summary:refresh', async () => {
   const localTokenSummary = await collectLocalTokenSummary();
   await saveState({ snapshot: { localTokenSummary } }, ['localTokenSummary']);
   return getViewSnapshot();
 });
-ipcMain.handle('window:set-size', async (_event, size) => {
+handleTrusted('window:set-size', async (size) => {
   const next = Math.max(86, Math.min(Number(size) || config.windowSize, 220));
   config.windowSize = next;
   let layout = null;
@@ -2152,26 +2261,28 @@ ipcMain.handle('window:set-size', async (_event, size) => {
   await writeJson(configPath(), config);
   return { size: next, layout };
 });
-ipcMain.handle('window:move-by', (_event, delta) => {
+handleTrusted('window:move-by', (delta) => {
   if (!floatWindow || !delta) return null;
+  const moveX = Math.max(-200, Math.min(Number(delta.x) || 0, 200));
+  const moveY = Math.max(-200, Math.min(Number(delta.y) || 0, 200));
   const [x, y] = floatWindow.getPosition();
-  floatWindow.setPosition(Math.round(x + Number(delta.x || 0)), Math.round(y + Number(delta.y || 0)), false);
+  floatWindow.setPosition(Math.round(x + moveX), Math.round(y + moveY), false);
   if (panelState.open) {
-    panelState.orbX = Math.round(panelState.orbX + Number(delta.x || 0));
-    panelState.orbY = Math.round(panelState.orbY + Number(delta.y || 0));
+    panelState.orbX = Math.round(panelState.orbX + moveX);
+    panelState.orbY = Math.round(panelState.orbY + moveY);
   }
   return null;
 });
-ipcMain.handle('window:set-panel-height', (_event, height) => resizeOpenPanelHeight(height));
-ipcMain.handle('window:set-detail-open', (_event, open) => positionPanel(open));
-ipcMain.handle('external:open-chatgpt', () => shell.openExternal(APP_URL));
-ipcMain.handle('external:open-repo', () => shell.openExternal(GITHUB_REPO_URL));
-ipcMain.handle('app:quit', () => app.quit());
+handleTrusted('window:set-panel-height', (height) => resizeOpenPanelHeight(height));
+handleTrusted('window:set-detail-open', (open) => positionPanel(Boolean(open)));
+handleTrusted('external:open-repo', () => shell.openExternal(GITHUB_REPO_URL));
+handleTrusted('app:quit', () => app.quit());
 
 app.on('before-quit', () => {
   try {
-    session.fromPartition('persist:official-openai-usage').flushStorageData();
+    webWindow?.webContents.session.flushStorageData();
   } catch {
     // Best effort only.
   }
+  destroyWebWindow();
 });

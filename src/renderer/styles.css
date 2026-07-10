@@ -18,6 +18,10 @@
   --control-border: rgba(255, 255, 255, 0.12);
   --control-bg: rgba(255, 255, 255, 0.08);
   --control-hover: rgba(255, 255, 255, 0.14);
+  --select-popup-bg: #202329;
+  --select-popup-ink: #f7fbff;
+  --select-popup-selected-bg: #28543b;
+  --select-popup-selected-ink: #ffffff;
   --disabled-ink: rgba(245, 250, 255, 0.54);
   --ghost-ink: rgba(245, 250, 255, 0.78);
   --success-ink: #d7fbe8;
@@ -56,6 +60,10 @@
   --control-border: rgba(31, 41, 55, 0.13);
   --control-bg: rgba(31, 41, 55, 0.055);
   --control-hover: rgba(31, 41, 55, 0.1);
+  --select-popup-bg: #ffffff;
+  --select-popup-ink: #172033;
+  --select-popup-selected-bg: #dbeafe;
+  --select-popup-selected-ink: #172033;
   --disabled-ink: rgba(42, 53, 72, 0.58);
   --ghost-ink: rgba(42, 53, 72, 0.78);
   --success-ink: #166534;
@@ -521,6 +529,27 @@ svg {
   font-weight: 700;
 }
 
+.account-auth-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.account-auth-badge.needs_reauth {
+  color: var(--error-ink);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.account-auth-badge.stale {
+  color: var(--warning-ink);
+  background: color-mix(in srgb, var(--warning-ink) 10%, transparent);
+}
+
 .account-card.is-current .account-name-part,
 .account-card.is-current .account-username-part {
   color: var(--success-ink);
@@ -946,6 +975,24 @@ dd {
 .price-field select:focus {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--control-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.price-field select {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] .price-field select {
+  color-scheme: light;
+}
+
+.price-field select option {
+  background-color: var(--select-popup-bg);
+  color: var(--select-popup-ink);
+}
+
+.price-field select option:checked {
+  background: var(--select-popup-selected-bg) linear-gradient(0deg, var(--select-popup-selected-bg), var(--select-popup-selected-bg));
+  color: var(--select-popup-selected-ink);
 }
 
 .switch-status {

@@ -85,6 +85,10 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function isFiniteValue(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
 function formatTier(value) {
   if (!value) return '--';
   const tier = String(value).toLowerCase();
@@ -281,7 +285,10 @@ function tokenTotal(tokenUsage, key) {
 
 function tokenUsageHint(tokenUsage) {
   if (tokenUsage?.source === 'account-profile') return '';
-  return '';
+  if (tokenUsage?.attributionConfidence === 'high') return ' · 高可信归属';
+  if (tokenUsage?.attributionConfidence === 'medium') return ' · 推断归属';
+  if (tokenUsage?.attributionConfidence === 'low') return ' · 归属待确认';
+  return tokenUsage?.source === 'local-estimate' ? ' · 未拆分账号' : '';
 }
 
 function normalizeResetCards(cards = []) {
@@ -294,7 +301,7 @@ function normalizeResetCards(cards = []) {
 }
 
 function createMiniQuota(label, window) {
-  const remaining = Number(window?.remainingPercent);
+  const remaining = isFiniteValue(window?.remainingPercent) ? Number(window.remainingPercent) : Number.NaN;
   const safeRemaining = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
   const accent = accentForRemaining(remaining);
   const quota = document.createElement('div');
@@ -359,15 +366,22 @@ function renderAccounts(accounts = []) {
       activeBadge.textContent = '使用中';
       nameLine.appendChild(activeBadge);
     }
+    if (account.authStatus === 'needs_reauth' || account.authStatus === 'stale') {
+      const authBadge = document.createElement('span');
+      authBadge.className = `account-auth-badge ${account.authStatus}`;
+      authBadge.textContent = account.authStatus === 'needs_reauth' ? '需重新登录' : '数据待刷新';
+      nameLine.appendChild(authBadge);
+    }
     title.appendChild(nameLine);
     header.appendChild(title);
     const headerActions = document.createElement('div');
     headerActions.className = 'account-card-actions';
     const button = document.createElement('button');
     button.className = account.isCurrent ? 'mini-button current' : 'mini-button';
-    button.textContent = account.isCurrent ? '当前账号' : '切换';
-    button.disabled = Boolean(account.isCurrent);
-    if (!account.isCurrent) {
+    const credentialsInvalid = account.authStatus === 'needs_reauth';
+    button.textContent = account.isCurrent ? '当前账号' : credentialsInvalid ? '需重登' : '切换';
+    button.disabled = Boolean(account.isCurrent || credentialsInvalid);
+    if (!account.isCurrent && !credentialsInvalid) {
       button.addEventListener('click', () => openSwitchDialog(account));
     }
     headerActions.appendChild(button);
@@ -462,7 +476,7 @@ function renderLocalSummary(summary) {
   const cost = estimateModelAwareCost(current);
   els.localInputTokens.textContent = formatTokens(current?.inputTokens);
   els.localCachedTokens.textContent = formatTokens(current?.cachedInputTokens);
-  els.localCacheRate.textContent = Number.isFinite(Number(current?.cacheRate)) ? formatPercent(current.cacheRate) : '--';
+  els.localCacheRate.textContent = isFiniteValue(current?.cacheRate) ? formatPercent(current.cacheRate) : '--';
   els.localOutputTokens.textContent = formatTokens(current?.outputTokens);
   els.localInputCost.textContent = formatUsdEstimate(cost?.input);
   els.localOutputCost.textContent = formatUsdEstimate(cost?.output);

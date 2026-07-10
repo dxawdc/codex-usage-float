@@ -9,8 +9,6 @@ contextBridge.exposeInMainWorld('codexUsage', {
   importCurrentAccount: () => ipcRenderer.invoke('accounts:import-current'),
   switchAccount: (id, strategy) => ipcRenderer.invoke('accounts:switch', id, strategy),
   deleteAccount: (id) => ipcRenderer.invoke('accounts:delete', id),
-  getCodexStatus: () => ipcRenderer.invoke('codex:status'),
-  restartCodex: () => ipcRenderer.invoke('codex:restart'),
   refreshLocalTokenSummary: () => ipcRenderer.invoke('local-token-summary:refresh'),
   setSize: (size) => ipcRenderer.invoke('window:set-size', size),
   setPanelHeight: (height) => ipcRenderer.invoke('window:set-panel-height', height),

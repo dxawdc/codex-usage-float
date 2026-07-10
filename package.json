@@ -1,11 +1,17 @@
 {
   "name": "codex-usage-float",
-  "version": "1.0.3",
+  "version": "2.0.0",
   "description": "Codex 用量桌面悬浮窗",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "check": "node scripts/check-syntax.mjs && node scripts/verify-renderer-contract.mjs",
+    "test": "node --test",
+    "smoke:electron": "electron scripts/electron-smoke.js",
+    "smoke:pricing-select": "electron scripts/electron-pricing-select-smoke.cjs",
+    "smoke:app": "electron . --self-test",
+    "verify": "npm run check && npm test && npm audit --audit-level=high",
     "build": "electron-builder",
     "build:dir": "electron-builder --dir"
   },
@@ -18,7 +24,7 @@
   "author": "可以叫我才哥",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^38.0.0",
+    "electron": "^39.8.10",
     "electron-builder": "^26.15.0"
   },
   "build": {

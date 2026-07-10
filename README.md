@@ -3,10 +3,10 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.3-2f81f7" alt="release v1.0.3" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.0-2f81f7" alt="release v2.0.0" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
-    <img src="https://img.shields.io/badge/Electron-38-47848f" alt="Electron 38" />
+    <img src="https://img.shields.io/badge/Electron-39-47848f" alt="Electron 39" />
   </p>
 </div>
 
@@ -16,31 +16,51 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v1.0.3](https://github.com/dxawdc/codex-usage-float/releases/download/v1.0.3/CodexUsageFloat-1.0.3.exe)
+- **推荐下载**：[CodexUsageFloat v2.0.0](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.0/CodexUsageFloat-2.0.0.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
-| `v1.0.3` | `CodexUsageFloat-1.0.3.exe` | `3296CE3D21A9DFBF51F28DF5DD91FD1DC5306E489D40E2DAAA89281C686FDC8F` |
-| `v1.0.2` | `CodexUsageFloat-1.0.2.exe` | `E56DB820BF47D505F43A9C54084F130D405A6E06F3693C86F5EEBA83530A4224` |
-| `v1.0.1` | `CodexUsageFloat-1.0.1.exe` | `30FD07B2F65A29E903164B7DB7CE71498EBA2E84D78C0ABF9CE8AB9A22DF665A` |
+| `v2.0.0` | `CodexUsageFloat-2.0.0.exe` | `CEF418C57D67126948B1B0E3D66AE7F1D5F0B260786640F30E21A4FF677766DF` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-1.0.3.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.0.0.exe -Algorithm SHA256
 ```
 
 ## 版本更新记录
 
-### 未发布
+### v2.0.0 - 2026-07-10
 
-- 修复新版 Codex 桌面端自动切换时误结束内部 `codex.exe`、导致界面显示 app-server 崩溃的问题。
-- 自动切换改为关闭完整 `ChatGPT.exe` 桌面应用、保存当前最新认证、切换目标认证后从 Windows 应用入口重新启动。
-- 新增“添加账号”流程：不执行退出登录，只移除活动 `auth.json` 以进入新账号登录，避免旧 refresh token 快照失效。
-- 切换账号仍共用同一个 `~/.codex`；项目、任务、会话、插件、配置和本地日志不会随账号切换而分离。
+#### 账号切换安全与稳定性
+
+- 修复新版 Codex 桌面端自动切换时误结束内部 `codex.exe`、导致界面显示 app-server 崩溃的问题。现在会识别完整的 `ChatGPT.exe`/`codex.exe` 进程树，不再单独终止内部 app-server。
+- 自动切换改为串行流程：关闭完整 Codex 桌面端 → 等待 `auth.json` 写入稳定 → 备份当前账号的最新认证 → 原子替换目标认证 → 从 Windows 应用入口重启 → 等待 app-server 就绪。失败时保留明确状态并允许手动打开 Codex。
+- 新增“添加账号”流程：保存当前账号后仅移除活动 `auth.json` 以进入官方登录，不执行“退出登录”，避免旧 refresh token 快照因服务端撤销而失效。
+- 手动切换会先检测运行中的 Codex 并提示用户完全退出；自动切换在进程、认证文件或重启步骤失败时不会把空状态写入账号库。
+- 继续共用同一个 `~/.codex`：项目、任务、会话、SQLite 状态、插件、skills、`config.toml` 和本地日志均不会移动、复制、删除或按账号分区；仅切换 `auth.json`。
+
+#### 凭据、数据和用量可靠性
+
+- 账号快照升级为 Electron `safeStorage` 的当前 Windows 用户加密格式；首次启动会迁移旧版明文账号库，无法解密的历史记录会标记为需要重新登录而非静默丢弃。
+- 账号刷新使用受控并发和超时；单个账号失败不会覆盖最近一次有效额度、会员或 Token 快照。
+- 新增 `needs_reauth` 与 `stale` 状态，能识别 `token_revoked` 等失效认证并引导使用“添加账号”重新登录。
+- 远程页面、Cookie 分区与抓取结果按账号身份隔离；未能与当前账号 ID、会话证据或额度指纹匹配的数据不会写入该账号。
+- 本地 JSONL 和 SQLite 日志改为增量扫描、缓存和证据游标；账号卡片仅统计可归属事件，底部汇总仍保持“所有会话”口径。
+
+#### 界面、质量与交付
+
+- 修复深色模式下“定价设置”模型下拉列表白底浅色文字的问题：显式指定原生控件主题、选项背景、文字及选中态，并同步适配浅色主题。
+- Electron 升级至 39.8.x；新增语法检查、渲染契约检查、账号库/进程/缓存单测、Electron `safeStorage` 冒烟测试及定价下拉 Electron 冒烟测试。
+- 增加 GitHub Actions 持续集成、发布检查清单和账号切换安全约束；`npm audit --audit-level=high` 通过。
+- 发布 Windows portable EXE `CodexUsageFloat-2.0.0.exe`，并在仓库保留该版本二进制和 SHA-256 以便复核。
+
+#### 已撤回的旧版账号切换发行版
+
+`v1.0.1`、`v1.0.2` 与 `v1.0.3` 的 GitHub Release、下载资产和远端标签已撤回，不再提供下载。它们都包含较早的账号切换实现：账号快照为明文或缺乏完整的桌面端进程协调，可能在新版 Codex 中留下过期认证、造成 app-server 异常或无法可靠恢复登录。保留以下更新记录仅用于追溯功能演进，不应再安装或使用这些版本。
 
 ### v1.0.3 - 2026-07-10
 
@@ -228,7 +248,7 @@ npm run dev
 
 - `accounts.json` 保存已导入账号的认证快照，以便后续切换；该文件包含敏感登录信息，请勿上传、分享或纳入备份公开范围。
 - 主题与自定义 Token 单价保存在 Electron 的本地存储目录中，只在当前 Windows 用户下生效，不会上传到远端。
-- 当前版本未对账号快照额外加密，安全边界依赖 Windows 用户目录权限。请只在可信个人设备上使用。
+- 账号快照使用 Electron `safeStorage` 通过当前 Windows 用户的系统加密能力保护；密文仍不可分享，复制到其他 Windows 用户或设备后通常无法解密。请只在可信个人设备上使用。
 - 应用不会把令牌写入调试日志、README、截图或 Git 仓库。
 - 自动切换会在完整 Codex 桌面端退出后保存当前最新 `auth.json`，再通过临时文件原子替换目标认证，降低令牌轮换丢失和写入中断风险。
 - “添加账号”只删除活动 `auth.json`，不会删除 `~/.codex` 下的项目、任务、会话或配置状态。
@@ -261,7 +281,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-1.0.3.exe
+CodexUsageFloat-2.0.0.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
@@ -272,14 +292,15 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-
 npm run build
 ```
 
-`dist/` 已加入 `.gitignore`，EXE 不会自动提交到 GitHub。
+`dist/` 默认已加入 `.gitignore`。`v2.0.0` 的 portable EXE 作为已验证发布产物按本次发布要求显式纳入仓库；后续构建产物仍需经过发布检查后才可提交或上传。
 
 项目维护者进行安全检查、正式打包和 GitHub Release 时，请遵循 [安全发布与 GitHub Release 检查清单](docs/RELEASE_CHECKLIST.md)。
 
 ## 项目结构
 
 ```text
-src/main.js              Electron 主进程、数据同步、账号库和窗口管理
+src/main.js              Electron 主进程、数据同步、账号流程和窗口管理
+src/lib/                 安全存储、进程管理、并发与 JSON 持久化模块
 src/preload.js           安全 IPC 桥接
 src/renderer/index.html  悬浮球、详情面板和确认弹窗结构
 src/renderer/app.js      前端渲染与交互逻辑
@@ -287,6 +308,8 @@ src/renderer/styles.css  UI 样式和自适应布局
 build/                   应用图标
 docs/screenshots/        README 示例截图
 docs/RELEASE_CHECKLIST.md 安全发布与 GitHub Release 检查清单
+scripts/                  静态检查与渲染层契约验证
+test/                     Node.js 单元与流程测试
 AGENTS.md                 项目维护与交付规则
 ```
 
@@ -294,7 +317,7 @@ AGENTS.md                 项目维护与交付规则
 
 - Codex / ChatGPT 内部接口并非稳定公开契约，字段或访问规则变化可能导致部分信息暂时不可用。
 - 账号 Token 接口可能延迟，且通常只有总量；输入、输出、缓存输入拆分主要来自本地日志。
-- 本地日志无法可靠拆分共享 `~/.codex` 的多个账号。
+- 账号 Token 只统计具有账号 ID、会话证据或额度指纹证据的日志；无法确认归属的事件不会强行计入当前账号。底部本地汇总仍采用所有会话口径。
 - GPT-5.5 费用默认按标准 API 基础费率估算；即使手动调整单价，也只能作为近似参考，不能替代实际 API 或订阅账单。
 - 替换 `auth.json` 不会刷新已运行进程的内存认证状态。手动切换后需要自行重启 Codex；自动切换依赖 Windows 应用入口和当前用户对桌面进程的管理权限，失败时需要手动打开应用。
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
@@ -326,10 +349,10 @@ AGENTS.md                 项目维护与交付规则
 
 > 这是非官方工具，不会绕过或修改 Codex / ChatGPT 的限制。界面中的用量、会员和重置卡信息取决于当前可访问的数据接口，本地日志统计则取决于 `~/.codex` 中保留的会话文件。请在理解以下风险后自行决定是否使用。
 
-1. **认证凭据风险**：多账号切换需要在本机保存 `auth.json` 快照，其中包含敏感登录令牌。当前版本未对快照额外加密，请只在可信个人设备和受保护的 Windows 用户账户中使用，不要分享 `%APPDATA%/codex-usage-float/accounts.json`。
+1. **认证凭据风险**：多账号切换需要在本机保存 `auth.json` 快照，其中包含敏感登录令牌。v2.0.0 起账号库通过 Electron `safeStorage` 使用当前 Windows 用户的系统加密能力保护；密文仍不应分享，复制到其他设备或 Windows 用户后通常无法解密。
 2. **账号状态风险**：本工具按串行方式保存当前最新认证并切换账号，不支持同一账号认证快照被多个 Codex 实例并发使用，也不承诺服务提供方长期支持此行为。请避免高频切换、自动化轮换和异常请求；出现登录异常时应停止使用并通过“添加账号”流程重新登录。
 3. **数据准确性风险**：额度、重置时间、会员信息和账号 Token 依赖非稳定接口，可能延迟、缺失或因字段变化而解析错误。界面数据只适合作为个人参考，不应作为账单、审计或购买决策的唯一依据。
-4. **本地日志口径风险**：多个账号共用同一个 `~/.codex` 时，会话日志通常无法可靠拆分归属。底部 Token 汇总明确采用“所有会话、不拆账号”的口径。
+4. **本地日志口径风险**：多个账号共用同一个 `~/.codex` 时，会话日志通常无法完全拆分归属。账号卡片只采纳有身份或关联证据的事件，并显示归属可信度；底部 Token 汇总明确采用“所有会话、不拆账号”的口径。
 5. **软件兼容风险**：替换 `auth.json` 不会刷新已运行 Codex 进程中的认证缓存，切换后通常需要完全重启 Codex。官方登录流程、文件格式或接口调整都可能使功能失效。
 6. **二进制信任风险**：仓库生成的 EXE 默认没有商业代码签名，Windows SmartScreen 可能提示未知发布者。建议从源码自行构建，并在运行前核对发布来源和 SHA-256。
 7. **无担保声明**：软件按 MIT License 的“按原样”条款提供，不对可用性、准确性、账号安全、数据丢失或任何直接与间接损失提供担保。使用者应自行评估并承担风险。
