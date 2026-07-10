@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Codex Usage Float</h1>
-  <p><strong>Codex 多账号用量、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
+  <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
     <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v1.0.2-2f81f7" alt="release v1.0.2" /></a>
