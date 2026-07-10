@@ -914,6 +914,23 @@ function addTokenTotals(target, source) {
   target.totalTokens += Number(source.totalTokens || 0);
 }
 
+function normalizeTokenModel(value) {
+  const model = String(value || '').trim();
+  return model ? model.toLowerCase() : 'unknown';
+}
+
+function addModelTokenTotals(models, model, source) {
+  const key = normalizeTokenModel(model);
+  if (!models[key]) {
+    models[key] = {
+      total: emptyTokenTotals(),
+      eventCount: 0
+    };
+  }
+  addTokenTotals(models[key].total, source);
+  models[key].eventCount += 1;
+}
+
 function subtractTokenTotals(current, previous) {
   const delta = emptyTokenTotals();
   for (const key of Object.keys(delta)) {
@@ -1289,9 +1306,9 @@ async function collectLocalTokenSummary() {
   const nowMs = Date.now();
   const now = new Date(nowMs).toISOString();
   const windows = {
-    today: { start: new Date(new Date(nowMs).getFullYear(), new Date(nowMs).getMonth(), new Date(nowMs).getDate()).getTime(), total: emptyTokenTotals(), eventCount: 0 },
-    last7d: { start: nowMs - 7 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), eventCount: 0 },
-    last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), eventCount: 0 }
+    today: { start: new Date(new Date(nowMs).getFullYear(), new Date(nowMs).getMonth(), new Date(nowMs).getDate()).getTime(), total: emptyTokenTotals(), models: {}, eventCount: 0 },
+    last7d: { start: nowMs - 7 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 },
+    last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 }
   };
   let sourceFileCount = 0;
   let failedFileCount = 0;
@@ -1306,6 +1323,7 @@ async function collectLocalTokenSummary() {
   for (const file of files) {
     sourceFileCount += 1;
     let previousTotal = emptyTokenTotals();
+    let currentModel = null;
     let contents;
     try {
       contents = await fs.readFile(file, 'utf8');
@@ -1314,11 +1332,15 @@ async function collectLocalTokenSummary() {
       continue;
     }
     for (const line of contents.split(/\r?\n/)) {
-      if (!line.trim() || !line.includes('"token_count"')) continue;
+      if (!line.trim() || (!line.includes('"token_count"') && !line.includes('"turn_context"'))) continue;
       let root;
       try {
         root = JSON.parse(line);
       } catch {
+        continue;
+      }
+      if (root?.type === 'turn_context' && root?.payload?.model) {
+        currentModel = normalizeTokenModel(root.payload.model);
         continue;
       }
       if (root?.type !== 'event_msg' || root?.payload?.type !== 'token_count') continue;
@@ -1336,6 +1358,7 @@ async function collectLocalTokenSummary() {
       for (const window of Object.values(windows)) {
         if (timestamp >= window.start) {
           addTokenTotals(window.total, delta);
+          addModelTokenTotals(window.models, currentModel, delta);
           window.eventCount += 1;
         }
       }
@@ -1349,7 +1372,19 @@ async function collectLocalTokenSummary() {
     return {
       ...window.total,
       cacheRate: inputTokens > 0 ? cachedInputTokens / inputTokens * 100 : null,
-      eventCount: window.eventCount
+      eventCount: window.eventCount,
+      modelBreakdown: Object.entries(window.models)
+        .map(([model, value]) => {
+          const modelInputTokens = Number(value.total.inputTokens || 0);
+          const modelCachedInputTokens = Number(value.total.cachedInputTokens || 0);
+          return {
+            model,
+            ...value.total,
+            cacheRate: modelInputTokens > 0 ? modelCachedInputTokens / modelInputTokens * 100 : null,
+            eventCount: value.eventCount
+          };
+        })
+        .sort((left, right) => right.totalTokens - left.totalTokens)
     };
   };
   return {

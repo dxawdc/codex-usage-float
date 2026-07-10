@@ -768,6 +768,41 @@ dd {
   white-space: nowrap;
 }
 
+.model-breakdown {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.model-usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--control-bg) 70%, transparent);
+}
+
+.model-usage-name {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 760;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-usage-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .actions {
   flex: 0 0 auto;
   margin-top: 18px;
@@ -880,7 +915,8 @@ dd {
   font-weight: 720;
 }
 
-.price-field input {
+.price-field input,
+.price-field select {
   width: 100%;
   min-height: 34px;
   border: 1px solid var(--control-border);
@@ -894,7 +930,8 @@ dd {
   user-select: text;
 }
 
-.price-field input:focus {
+.price-field input:focus,
+.price-field select:focus {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--control-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
@@ -937,6 +974,139 @@ dd {
 .confirm-actions .text-button {
   min-width: 92px;
   justify-content: center;
+}
+
+.panel {
+  padding: 12px;
+}
+
+.panel-head {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.title-stack {
+  gap: 5px;
+}
+
+.head-actions {
+  gap: 6px;
+}
+
+.section-title {
+  margin-bottom: 6px;
+}
+
+.accounts-section,
+.cards-section,
+.local-section {
+  margin-top: 8px;
+}
+
+.accounts-list {
+  gap: 6px;
+}
+
+.accounts-list.is-scrollable {
+  max-height: 342px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.accounts-list.is-scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.accounts-list.is-scrollable::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+.account-card {
+  gap: 6px;
+  padding: 8px;
+}
+
+.account-main {
+  gap: 6px;
+}
+
+.account-card-head,
+.account-card-actions,
+.account-quotas {
+  gap: 6px;
+}
+
+.account-title-line {
+  gap: 5px;
+}
+
+.account-plan-inline {
+  margin-left: 5px;
+}
+
+.mini-quota {
+  padding: 6px 7px;
+}
+
+.mini-quota-head,
+.mini-quota-value {
+  gap: 4px;
+}
+
+.mini-quota-value strong {
+  font-size: 16px;
+}
+
+.mini-meter {
+  height: 6px;
+  margin-top: 6px;
+}
+
+.account-token-line {
+  line-height: 1.2;
+  font-size: 11px;
+}
+
+.account-plan-inline,
+.mini-quota-head span {
+  font-size: 11px;
+}
+
+.card-list {
+  max-height: 62px;
+}
+
+.local-grid {
+  gap: 6px;
+}
+
+.local-grid div {
+  padding: 7px 8px;
+}
+
+.model-breakdown {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.model-usage-row {
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.model-usage-name {
+  font-size: 11px;
+}
+
+.model-usage-meta {
+  font-size: 10px;
+}
+
+.actions {
+  margin-top: 10px;
 }
 
 @keyframes spin {

@@ -9,6 +9,7 @@ const state = {
   switchPhase: 'idle',
   theme: localStorage.getItem('codexUsageTheme') || 'dark',
   pricing: null,
+  pricingModel: 'gpt-5.5',
   panelHeightTimer: null
 };
 
@@ -44,6 +45,7 @@ const els = {
   localInputCost: document.getElementById('localInputCost'),
   localOutputCost: document.getElementById('localOutputCost'),
   localTokenMeta: document.getElementById('localTokenMeta'),
+  localModelBreakdown: document.getElementById('localModelBreakdown'),
   confirmDialog: document.getElementById('confirmDialog'),
   confirmTitle: document.getElementById('confirmTitle'),
   confirmBody: document.getElementById('confirmBody'),
@@ -53,6 +55,7 @@ const els = {
   autoSwitchButton: document.getElementById('autoSwitchButton'),
   themeToggleButton: document.getElementById('themeToggleButton'),
   pricingDialog: document.getElementById('pricingDialog'),
+  pricingModelSelect: document.getElementById('pricingModelSelect'),
   inputPriceField: document.getElementById('inputPriceField'),
   cachedInputPriceField: document.getElementById('cachedInputPriceField'),
   outputPriceField: document.getElementById('outputPriceField'),
@@ -62,11 +65,18 @@ const els = {
   savePricingButton: document.getElementById('savePricingButton')
 };
 
-const DEFAULT_GPT_5_5_PRICE_PER_MILLION = Object.freeze({
-  input: 5,
-  cachedInput: 0.5,
-  output: 30
+const DEFAULT_MODEL_PRICING_PER_MILLION = Object.freeze({
+  'gpt-5.6-sol': Object.freeze({ input: 5, cachedInput: 0.5, output: 30 }),
+  'gpt-5.6-terra': Object.freeze({ input: 2.5, cachedInput: 0.25, output: 15 }),
+  'gpt-5.6-luna': Object.freeze({ input: 1, cachedInput: 0.1, output: 6 }),
+  'gpt-5.5': Object.freeze({ input: 5, cachedInput: 0.5, output: 30 }),
+  'gpt-5.5-cyber': Object.freeze({ input: 20, cachedInput: 2, output: 120 }),
+  'gpt-5.4': Object.freeze({ input: 2.5, cachedInput: 0.25, output: 15 }),
+  'gpt-5.4-mini': Object.freeze({ input: 0.75, cachedInput: 0.075, output: 4.5 }),
+  'gpt-5.3-codex': Object.freeze({ input: 1.75, cachedInput: 0.175, output: 14 }),
+  'gpt-5.2': Object.freeze({ input: 1.75, cachedInput: 0.175, output: 14 })
 });
+const DEFAULT_GPT_5_5_PRICE_PER_MILLION = DEFAULT_MODEL_PRICING_PER_MILLION['gpt-5.5'];
 const PRICING_STORAGE_KEY = 'codexUsagePricing';
 
 function clamp(value, min, max) {
@@ -119,16 +129,35 @@ function formatUsdEstimate(value) {
   return `≈ ${amount}`;
 }
 
-function normalizePricing(value) {
+function normalizePrice(value, fallback = DEFAULT_GPT_5_5_PRICE_PER_MILLION) {
   const source = value || {};
   const normalized = {};
   for (const key of ['input', 'cachedInput', 'output']) {
     const number = Number(source[key]);
     normalized[key] = Number.isFinite(number) && number >= 0
       ? Math.min(number, 1000000)
-      : DEFAULT_GPT_5_5_PRICE_PER_MILLION[key];
+      : fallback[key];
   }
   return normalized;
+}
+
+function normalizeModelKey(value) {
+  const model = String(value || '').trim().toLowerCase();
+  return model || 'unknown';
+}
+
+function normalizePricing(value) {
+  const source = value || {};
+  const isLegacyFlatPrice = ['input', 'cachedInput', 'output'].some((key) => Object.hasOwn(source, key));
+  const fallback = normalizePrice(source.fallback || (isLegacyFlatPrice ? source : null));
+  const models = {};
+  for (const [model, defaultPrice] of Object.entries(DEFAULT_MODEL_PRICING_PER_MILLION)) {
+    models[model] = normalizePrice(source.models?.[model], defaultPrice);
+  }
+  for (const [model, price] of Object.entries(source.models || {})) {
+    models[normalizeModelKey(model)] = normalizePrice(price, models[normalizeModelKey(model)] || fallback);
+  }
+  return { fallback, models };
 }
 
 function loadPricingSettings() {
@@ -146,19 +175,38 @@ function savePricingSettings(value) {
   return pricing;
 }
 
-function estimateGpt55Cost(window) {
-  if (!window) return null;
-  const pricing = state.pricing || DEFAULT_GPT_5_5_PRICE_PER_MILLION;
-  const inputTokens = Math.max(0, Number(window.inputTokens) || 0);
-  const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(window.cachedInputTokens) || 0));
-  const outputTokens = Math.max(0, Number(window.outputTokens) || 0);
+function pricingForModel(model, pricing = state.pricing) {
+  const normalized = normalizePricing(pricing);
+  return normalized.models[normalizeModelKey(model)] || normalized.fallback;
+}
+
+function estimateTokenCost(tokens, model, pricing = state.pricing) {
+  if (!tokens) return null;
+  const price = pricingForModel(model, pricing);
+  const inputTokens = Math.max(0, Number(tokens.inputTokens) || 0);
+  const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(tokens.cachedInputTokens) || 0));
+  const outputTokens = Math.max(0, Number(tokens.outputTokens) || 0);
   const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
   const input = (
-    uncachedInputTokens * pricing.input +
-    cachedInputTokens * pricing.cachedInput
+    uncachedInputTokens * price.input +
+    cachedInputTokens * price.cachedInput
   ) / 1000000;
-  const output = outputTokens * pricing.output / 1000000;
+  const output = outputTokens * price.output / 1000000;
   return { input, output, total: input + output };
+}
+
+function estimateModelAwareCost(window) {
+  if (!window) return null;
+  const breakdown = Array.isArray(window.modelBreakdown) && window.modelBreakdown.length
+    ? window.modelBreakdown
+    : [{ model: 'unknown', ...window }];
+  return breakdown.reduce((total, item) => {
+    const cost = estimateTokenCost(item, item.model);
+    total.input += cost.input;
+    total.output += cost.output;
+    total.total += cost.total;
+    return total;
+  }, { input: 0, output: 0, total: 0 });
 }
 
 function formatMinute(value) {
@@ -264,6 +312,7 @@ function createMiniQuota(label, window) {
 
 function renderAccounts(accounts = []) {
   els.accountsList.replaceChildren();
+  els.accountsList.classList.toggle('is-scrollable', accounts.length > 3);
   if (!accounts.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
@@ -382,22 +431,48 @@ function localWindow(summary) {
   return summary?.windows?.[state.localRange] || null;
 }
 
+function modelDisplayName(model) {
+  return normalizeModelKey(model) === 'unknown'
+    ? '未识别模型'
+    : String(model || '').replace(/(^|[-_])(\w)/g, (_, prefix, char) => `${prefix}${char.toUpperCase()}`);
+}
+
+function renderModelBreakdown(current) {
+  els.localModelBreakdown.replaceChildren();
+  const breakdown = Array.isArray(current?.modelBreakdown) ? current.modelBreakdown : [];
+  for (const item of breakdown) {
+    const row = document.createElement('div');
+    row.className = 'model-usage-row';
+    const name = document.createElement('strong');
+    name.className = 'model-usage-name';
+    name.textContent = modelDisplayName(item.model);
+    name.title = item.model === 'unknown' ? '日志中缺少模型上下文，使用“未识别模型”定价' : item.model;
+    const meta = document.createElement('span');
+    meta.className = 'model-usage-meta';
+    meta.textContent = `${formatTokens(item.totalTokens)} Token · ${formatUsdEstimate(estimateTokenCost(item, item.model)?.total)}`;
+    row.append(name, meta);
+    els.localModelBreakdown.appendChild(row);
+  }
+}
+
 function renderLocalSummary(summary) {
   const current = localWindow(summary);
-  const cost = estimateGpt55Cost(current);
+  const cost = estimateModelAwareCost(current);
   els.localInputTokens.textContent = formatTokens(current?.inputTokens);
   els.localCachedTokens.textContent = formatTokens(current?.cachedInputTokens);
   els.localCacheRate.textContent = Number.isFinite(Number(current?.cacheRate)) ? formatPercent(current.cacheRate) : '--';
   els.localOutputTokens.textContent = formatTokens(current?.outputTokens);
   els.localInputCost.textContent = formatUsdEstimate(cost?.input);
   els.localOutputCost.textContent = formatUsdEstimate(cost?.output);
-  els.localSummarySubtitle.textContent = `所有会话 · 不拆分账号 · 总计 ${formatUsdEstimate(cost?.total)}`;
+  const modelCount = Array.isArray(current?.modelBreakdown) ? current.modelBreakdown.length : 0;
+  els.localSummarySubtitle.textContent = `所有会话 · ${modelCount || 1} 个模型 · 总估算 ${formatUsdEstimate(cost?.total)}`;
   els.localTokenMeta.textContent = [
     `推理输出 ${formatTokens(current?.reasoningOutputTokens)}`,
     `总计 ${formatTokens(current?.totalTokens)}`,
     `${formatNumber(summary?.sourceFileCount || 0)} 个文件`,
     `${formatNumber(current?.eventCount || 0)} 条`
   ].join(' · ');
+  renderModelBreakdown(current);
   document.querySelectorAll('[data-local-range]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.localRange === state.localRange);
   });
@@ -507,8 +582,29 @@ function priceInputValue(value) {
   return Number.isFinite(number) ? String(number) : '';
 }
 
+function pricingModelKeys() {
+  const summaryModels = localWindow(state.snapshot?.localTokenSummary)?.modelBreakdown || [];
+  return [...new Set([
+    ...Object.keys(DEFAULT_MODEL_PRICING_PER_MILLION),
+    ...Object.keys(state.pricing?.models || {}),
+    ...summaryModels.map((item) => normalizeModelKey(item.model))
+  ])];
+}
+
+function setPricingModelOptions() {
+  const selected = pricingModelKeys().includes(state.pricingModel) ? state.pricingModel : 'gpt-5.5';
+  state.pricingModel = selected;
+  els.pricingModelSelect.replaceChildren(...pricingModelKeys().map((model) => {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = modelDisplayName(model);
+    return option;
+  }));
+  els.pricingModelSelect.value = selected;
+}
+
 function setPricingFields(pricing = state.pricing) {
-  const next = normalizePricing(pricing);
+  const next = pricingForModel(state.pricingModel, pricing);
   els.inputPriceField.value = priceInputValue(next.input);
   els.cachedInputPriceField.value = priceInputValue(next.cachedInput);
   els.outputPriceField.value = priceInputValue(next.output);
@@ -528,10 +624,11 @@ function readPricingFields() {
     }
     result[key] = number;
   }
-  return normalizePricing(result);
+  return normalizePrice(result);
 }
 
 function openPricingDialog() {
+  setPricingModelOptions();
   setPricingFields();
   setPricingStatus('');
   els.pricingDialog.hidden = false;
@@ -683,8 +780,12 @@ els.scrim.addEventListener('click', () => setPanelOpen(false));
 els.refreshButton.addEventListener('click', refresh);
 els.pricingSettingsButton.addEventListener('click', openPricingDialog);
 els.cancelPricingButton.addEventListener('click', closePricingDialog);
+els.pricingModelSelect.addEventListener('change', () => {
+  state.pricingModel = normalizeModelKey(els.pricingModelSelect.value);
+  setPricingFields();
+});
 els.resetPricingButton.addEventListener('click', () => {
-  const pricing = savePricingSettings(DEFAULT_GPT_5_5_PRICE_PER_MILLION);
+  const pricing = savePricingSettings();
   setPricingFields(pricing);
   renderLocalSummary(state.snapshot?.localTokenSummary);
   setPricingStatus('已恢复默认定价。', 'success');
@@ -692,7 +793,14 @@ els.resetPricingButton.addEventListener('click', () => {
 });
 els.savePricingButton.addEventListener('click', () => {
   try {
-    const pricing = savePricingSettings(readPricingFields());
+    const price = readPricingFields();
+    const pricing = savePricingSettings({
+      ...state.pricing,
+      models: {
+        ...(state.pricing?.models || {}),
+        [state.pricingModel]: price
+      }
+    });
     setPricingFields(pricing);
     renderLocalSummary(state.snapshot?.localTokenSummary);
     closePricingDialog();
