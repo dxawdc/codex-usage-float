@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => ipcRenderer.invoke('usage:get'),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   refresh: () => ipcRenderer.invoke('usage:refresh'),
   openWeb: () => ipcRenderer.invoke('usage:open-web'),
   openAbout: () => ipcRenderer.invoke('external:open-repo'),

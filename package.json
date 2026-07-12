@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-float",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Codex 用量桌面悬浮窗",
   "main": "src/main.js",
   "scripts": {

@@ -33,6 +33,8 @@ const noOp = () => Promise.resolve();
 
 contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => Promise.resolve(snapshot),
+  getSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
+  saveSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
   refresh: () => Promise.resolve(snapshot),
   openWeb: noOp,
   openAbout: noOp,

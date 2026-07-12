@@ -3,7 +3,7 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.0-2f81f7" alt="release v2.0.0" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.1-2f81f7" alt="release v2.0.1" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-39-47848f" alt="Electron 39" />
@@ -16,19 +16,19 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v2.0.0](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.0/CodexUsageFloat-2.0.0.exe)
+- **推荐下载**：[CodexUsageFloat v2.0.1](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.1/CodexUsageFloat-2.0.1.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
-| `v2.0.0` | `CodexUsageFloat-2.0.0.exe` | `CEF418C57D67126948B1B0E3D66AE7F1D5F0B260786640F30E21A4FF677766DF` |
+| `v2.0.1` | `CodexUsageFloat-2.0.1.exe` | `0DB0910D9121FBC214DB6C7A70A71BC916AADB399D7DB8E7093B701C84CBECD9` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.0.0.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.0.1.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -63,14 +63,14 @@ Get-FileHash .\CodexUsageFloat-2.0.0.exe -Algorithm SHA256
 
 ## 主要功能
 
-- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比。
+- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
 - **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、5 小时额度和 1 周额度；账号超过 3 个时在列表内滚动。
 - **可控账号切换**：提供手动切换与自动切换；均只原子替换 `~/.codex/auth.json`，项目、任务、会话、插件和配置继续共用。自动切换会先关闭完整 Codex 桌面应用，保存当前最新认证，再切换并重新启动。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天和 30 天总 Token。该数据来自账号接口，可能存在同步延迟。
 - **本地日志汇总**：按今日、7 天和 30 天切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数；按模型双列展示用量与费用，并使用独立模型费率估算总费用。
 - **重置卡列表**：显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
-- **主题与定价设置**：支持深色/浅色主题；可在设置中维护输入、缓存输入和输出单价，适应后续价格调整。
+- **设置中心**：支持深色/浅色主题；在统一设置中心的“刷新时间 / 模型定价 / 显示模式”左侧 Tab 中调整自动刷新间隔（默认 30 分钟）、各模型输入/缓存输入/输出单价和窗口置顶状态。
 - **过程反馈**：导入已有账号时明确提示已更新；账号切换展示进行中、成功或失败状态。
 - **便携打包**：使用 `electron-builder` 生成 Windows portable EXE，无需安装程序。
 
@@ -156,9 +156,9 @@ npm run dev
 
 本地会话日志会读取同一会话中的 `turn_context.payload.model`，并将后续 `token_count` 增量按模型拆分。日志未提供模型上下文的历史用量会显示为“未识别模型”，可单独配置其兜底单价。
 
-内置预设覆盖 GPT-5.6 Sol、GPT-5.6 Terra、GPT-5.6 Luna、GPT-5.5、GPT-5.4、GPT-5.4 Mini、GPT-5.3 Codex 和 GPT-5.2；可在定价设置中逐个模型修改输入、缓存输入和输出单价。新模型会随本地日志自动出现在设置中。
+内置预设覆盖 GPT-5.6 Sol、GPT-5.6 Terra、GPT-5.6 Luna、GPT-5.5、GPT-5.4、GPT-5.4 Mini、GPT-5.3 Codex 和 GPT-5.2；可在“模型定价”Tab 中逐个模型修改输入、缓存输入和输出单价。新模型会随本地日志自动出现在设置中。
 
-费用估算按模型采用内置的官方标准费率预设；可通过面板顶部的“定价设置”选择模型并修改输入、缓存输入和输出三项单价，保存后会立即重新计算本地汇总中的估算金额。各模型的官方费率可能变动，请以 OpenAI 的 [Codex rate card](https://help.openai.com/en/articles/20001106-codex-rate-card-2) 与 [模型价格页](https://developers.openai.com/api/docs/models) 为准：
+费用估算按模型采用内置的官方标准费率预设；可通过面板顶部的“设置中心”进入“模型定价”Tab，选择模型并修改输入、缓存输入和输出三项单价，保存后会立即重新计算本地汇总中的估算金额。各模型的官方费率可能变动，请以 OpenAI 的 [Codex rate card](https://help.openai.com/en/articles/20001106-codex-rate-card-2) 与 [模型价格页](https://developers.openai.com/api/docs/models) 为准：
 
 ```text
 输入费用 = (输入 - 缓存输入) / 1,000,000 × 当前模型输入单价
@@ -206,11 +206,11 @@ npm run dev
 - 双击悬浮球：立即刷新用量。
 - 鼠标滚轮：调整悬浮球大小。
 - 刷新按钮：刷新已保存账号、当前账号重置卡和本地日志汇总。
+- 设置中心：在“刷新时间”Tab 调整账号自动刷新间隔（5–180 分钟，默认 30 分钟）；在“模型定价”Tab 调整模型费用估算单价；在“显示模式”Tab 开关窗口置顶。
 - 添加账号：关闭 Codex、保存当前认证并清除活动 `auth.json`，重新打开后登录新账号。
 - 导入当前账号：读取当前 `auth.json` 并保存或更新账号快照。
 - 手动切换：要求先完全退出 Codex，再保存当前最新认证并替换目标 `auth.json`，完成后由用户打开 Codex。
 - 自动切换：关闭完整 Codex 桌面端、保存当前最新认证、替换目标 `auth.json`，并从 Windows 应用入口重新启动。
-- 定价设置：调整本地 Token 费用估算使用的输入、缓存输入和输出单价。
 - 主题切换：在深色与浅色界面之间切换，设置保存在本机。
 - 删除：从工具账号库中移除非当前账号，不会删除 Codex 会话文件。
 - 关于工具：打开本项目 GitHub 仓库。
@@ -228,7 +228,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-2.0.0.exe
+CodexUsageFloat-2.0.1.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
@@ -239,7 +239,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-
 npm run build
 ```
 
-`dist/` 默认已加入 `.gitignore`。`v2.0.0` 的 portable EXE 作为已验证发布产物按本次发布要求显式纳入仓库；后续构建产物仍需经过发布检查后才可提交或上传。
+`dist/` 默认已加入 `.gitignore`。`v2.0.1` 的 portable EXE 作为已验证发布产物按本次发布要求显式纳入仓库；后续构建产物仍需经过发布检查后才可提交或上传。
 
 项目维护者进行安全检查、正式打包和 GitHub Release 时，请遵循 [安全发布与 GitHub Release 检查清单](docs/RELEASE_CHECKLIST.md)。
 
@@ -270,6 +270,14 @@ AGENTS.md                 项目维护与交付规则
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 版本更新记录
+
+### v2.0.1 - 2026-07-12
+
+- 设置中心改为左侧 Tab，分为“刷新时间”“模型定价”和“显示模式”。
+- 自动刷新间隔支持用户设置，默认 30 分钟；窗口置顶支持开关并持久化保存。
+- 设置中心改用右上角 `×` 关闭，账号信息卡进一步压缩，悬浮球拖动位置限制在显示器工作区内。
+- 本地日志按模型拆分 Token 用量与费用，模型数据双列展示；账号超过 3 个时列表支持滚动。
+- 发布 Windows portable EXE `CodexUsageFloat-2.0.1.exe`，SHA-256 见上方校验表。
 
 ### v2.0.0 - 2026-07-10
 

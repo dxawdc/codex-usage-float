@@ -26,13 +26,39 @@ async function main() {
         const option = select.options[0];
         const selectStyle = getComputedStyle(select);
         const optionStyle = getComputedStyle(option);
+        const refreshTab = document.getElementById('settingsRefreshTab');
+        const pricingTab = document.getElementById('settingsPricingTab');
+        const displayTab = document.getElementById('settingsDisplayTab');
+        const refreshPanel = document.getElementById('refreshSettingsPanel');
+        const pricingPanel = document.getElementById('pricingSettingsPanel');
+        const displayPanel = document.getElementById('displaySettingsPanel');
+        const tabsLayout = getComputedStyle(document.querySelector('.settings-tabs')).flexDirection;
+        const defaultInterval = document.getElementById('refreshIntervalField').value;
+        pricingTab.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const pricingTabVisible = !pricingPanel.hidden && refreshPanel.hidden;
+        displayTab.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const displayTabVisible = !displayPanel.hidden && refreshPanel.hidden && pricingPanel.hidden;
+        refreshTab.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const dialogOpen = !document.getElementById('pricingDialog').hidden;
+        const closeButton = document.getElementById('closePricingButton');
+        closeButton.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-          dialogOpen: !document.getElementById('pricingDialog').hidden,
+          dialogOpen,
           optionCount: select.options.length,
           theme: document.documentElement.dataset.theme,
           colorScheme: selectStyle.colorScheme,
           optionBackground: optionStyle.backgroundColor,
-          optionColor: optionStyle.color
+          optionColor: optionStyle.color,
+          settingsTabs: Boolean(refreshTab && pricingTab && displayTab),
+          pricingTabVisible,
+          displayTabVisible,
+          tabsLayout,
+          defaultInterval,
+          closeButtonWorks: document.getElementById('pricingDialog').hidden
         };
       })();
     `);
@@ -43,6 +69,12 @@ async function main() {
     assert.equal(result.colorScheme, 'dark', 'pricing select does not declare a dark native control scheme');
     assert.notEqual(result.optionBackground, 'rgba(0, 0, 0, 0)', 'pricing option background is transparent');
     assert.notEqual(result.optionColor, 'rgba(0, 0, 0, 0)', 'pricing option text color is transparent');
+    assert.equal(result.settingsTabs, true, 'settings center tabs are missing');
+    assert.equal(result.pricingTabVisible, true, 'pricing tab did not switch');
+    assert.equal(result.displayTabVisible, true, 'display mode tab did not switch');
+    assert.equal(result.tabsLayout, 'column', 'settings tabs are not displayed on the left');
+    assert.equal(result.defaultInterval, '30', 'refresh interval default is not 30 minutes');
+    assert.equal(result.closeButtonWorks, true, 'settings close button did not close the dialog');
     console.log(`Pricing select smoke test passed: ${result.optionCount} options, ${result.colorScheme} native scheme`);
   } finally {
     if (!window.isDestroyed()) window.destroy();

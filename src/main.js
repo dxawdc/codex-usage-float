@@ -29,6 +29,9 @@ const PANEL_WIDTH = 560;
 const PANEL_HEIGHT = 720;
 const PANEL_GAP = 12;
 const PANEL_EDGE_PADDING = 12;
+const DEFAULT_REFRESH_INTERVAL_MINUTES = 30;
+const MIN_REFRESH_INTERVAL_MINUTES = 5;
+const MAX_REFRESH_INTERVAL_MINUTES = 180;
 const TOKEN_FINGERPRINT_VERSION = 4;
 const STORED_ACCOUNT_REFRESH_CONCURRENCY = 3;
 const REMOTE_HOST_SUFFIXES = ['chatgpt.com', 'openai.com'];
@@ -54,7 +57,7 @@ let refreshTimer;
 let refreshInFlight = null;
 let authTransitionInProgress = false;
 let panelState = { open: false, side: 'right', orbX: 0, orbY: 0 };
-let config = { windowSize: 116, refreshIntervalMinutes: 30 };
+let config = { windowSize: 116, refreshIntervalMinutes: DEFAULT_REFRESH_INTERVAL_MINUTES, alwaysOnTop: true };
 let state = createEmptyState();
 
 function configPath() {
@@ -71,6 +74,19 @@ function accountsPath() {
 
 function debugPath() {
   return path.join(app.getPath('userData'), 'last-capture.json');
+}
+
+function normalizeRefreshInterval(value, fallback = DEFAULT_REFRESH_INTERVAL_MINUTES) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.round(Math.max(MIN_REFRESH_INTERVAL_MINUTES, Math.min(number, MAX_REFRESH_INTERVAL_MINUTES)));
+}
+
+function getSettingsSnapshot() {
+  return {
+    refreshIntervalMinutes: normalizeRefreshInterval(config.refreshIntervalMinutes),
+    alwaysOnTop: config.alwaysOnTop !== false
+  };
 }
 
 async function getCodexAppStatus() {
@@ -139,6 +155,8 @@ async function loadState() {
   const warnings = [];
   try {
     config = { ...config, ...(await readJson(configPath(), config)) };
+    config.refreshIntervalMinutes = normalizeRefreshInterval(config.refreshIntervalMinutes);
+    config.alwaysOnTop = config.alwaysOnTop !== false;
   } catch (error) {
     warnings.push(`配置文件损坏：${error?.message || error}`);
   }
@@ -1862,7 +1880,7 @@ function createFloatWindow() {
     transparent: true,
     resizable: false,
     movable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: config.alwaysOnTop !== false,
     skipTaskbar: true,
     hasShadow: false,
     webPreferences: {
@@ -1872,7 +1890,7 @@ function createFloatWindow() {
       sandbox: true
     }
   });
-  floatWindow.setAlwaysOnTop(true, 'screen-saver');
+  applyAlwaysOnTop();
   floatWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   floatWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file:')) event.preventDefault();
@@ -2155,11 +2173,34 @@ function positionPanel(open) {
     return { side, orbX: orbCssX, panelX: panelCssX, orbY: orbCssY };
   }
 
-  const nextX = panelState.open ? panelState.orbX : x;
-  const nextY = panelState.open ? panelState.orbY : y;
+  const nextPosition = clampWindowPosition(
+    panelState.open ? panelState.orbX : x,
+    panelState.open ? panelState.orbY : y,
+    orbOuter,
+    orbOuter,
+    display
+  );
+  const nextX = nextPosition.x;
+  const nextY = nextPosition.y;
   panelState = { ...panelState, open: false };
   floatWindow.setBounds({ x: nextX, y: nextY, width: orbOuter, height: orbOuter });
   return { side: panelState.side, orbX: FLOAT_PADDING, panelX: FLOAT_PADDING, orbY: FLOAT_PADDING };
+}
+
+function applyAlwaysOnTop() {
+  if (!floatWindow || floatWindow.isDestroyed()) return;
+  const enabled = config.alwaysOnTop !== false;
+  if (enabled) floatWindow.setAlwaysOnTop(true, 'screen-saver');
+  else floatWindow.setAlwaysOnTop(false);
+}
+
+function clampWindowPosition(x, y, width, height, preferredDisplay = null) {
+  const display = preferredDisplay || screen.getDisplayNearestPoint({ x: x + width / 2, y: y + height / 2 });
+  const workArea = display.workArea;
+  return {
+    x: Math.max(workArea.x, Math.min(Math.round(x), workArea.x + workArea.width - width)),
+    y: Math.max(workArea.y, Math.min(Math.round(y), workArea.y + workArea.height - height))
+  };
 }
 
 function resizeOpenPanelHeight(contentHeight) {
@@ -2191,7 +2232,7 @@ function resizeOpenPanelHeight(contentHeight) {
 
 function startRefreshTimer() {
   if (refreshTimer) clearInterval(refreshTimer);
-  const minutes = Math.max(5, Math.min(Number(config.refreshIntervalMinutes) || 30, 180));
+  const minutes = normalizeRefreshInterval(config.refreshIntervalMinutes);
   refreshTimer = setInterval(() => {
     refreshUsage('timer').catch(() => {});
   }, minutes * 60 * 1000);
@@ -2237,6 +2278,24 @@ function handleTrusted(channel, handler) {
 }
 
 handleTrusted('usage:get', () => getViewSnapshot());
+handleTrusted('settings:get', () => getSettingsSnapshot());
+handleTrusted('settings:save', async (patch = {}) => {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('无效的设置');
+  let changed = false;
+  if (Object.prototype.hasOwnProperty.call(patch, 'refreshIntervalMinutes')) {
+    config.refreshIntervalMinutes = normalizeRefreshInterval(patch.refreshIntervalMinutes, config.refreshIntervalMinutes);
+    startRefreshTimer();
+    changed = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'alwaysOnTop')) {
+    if (typeof patch.alwaysOnTop !== 'boolean') throw new Error('显示模式设置无效');
+    config.alwaysOnTop = patch.alwaysOnTop;
+    applyAlwaysOnTop();
+    changed = true;
+  }
+  if (changed) await writeJson(configPath(), config);
+  return getSettingsSnapshot();
+});
 handleTrusted('usage:refresh', () => refreshUsage('manual'));
 handleTrusted('usage:open-web', () => openWebWindow());
 handleTrusted('accounts:prepare-add', () => prepareAddAccount());
@@ -2257,6 +2316,9 @@ handleTrusted('window:set-size', async (size) => {
   } else {
     const outer = Math.round(next + FLOAT_PADDING * 2);
     floatWindow.setSize(outer, outer);
+    const [x, y] = floatWindow.getPosition();
+    const clamped = clampWindowPosition(x, y, outer, outer);
+    floatWindow.setPosition(clamped.x, clamped.y, false);
   }
   await writeJson(configPath(), config);
   return { size: next, layout };
@@ -2266,10 +2328,15 @@ handleTrusted('window:move-by', (delta) => {
   const moveX = Math.max(-200, Math.min(Number(delta.x) || 0, 200));
   const moveY = Math.max(-200, Math.min(Number(delta.y) || 0, 200));
   const [x, y] = floatWindow.getPosition();
-  floatWindow.setPosition(Math.round(x + moveX), Math.round(y + moveY), false);
+  const [width, height] = floatWindow.getSize();
+  const display = screen.getDisplayNearestPoint({ x: x + moveX + width / 2, y: y + moveY + height / 2 });
+  const next = clampWindowPosition(x + moveX, y + moveY, width, height, display);
+  floatWindow.setPosition(next.x, next.y, false);
+  const appliedX = next.x - x;
+  const appliedY = next.y - y;
   if (panelState.open) {
-    panelState.orbX = Math.round(panelState.orbX + moveX);
-    panelState.orbY = Math.round(panelState.orbY + moveY);
+    panelState.orbX = Math.round(panelState.orbX + appliedX);
+    panelState.orbY = Math.round(panelState.orbY + appliedY);
   }
   return null;
 });

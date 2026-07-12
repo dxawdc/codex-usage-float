@@ -37,8 +37,8 @@
             </div>
           </div>
           <div class="head-actions">
-            <button id="pricingSettingsButton" class="icon-button" title="定价设置" aria-label="定价设置">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <button id="pricingSettingsButton" class="icon-button" title="设置中心" aria-label="设置中心">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20h-2.4v-.2a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.46 15a1.7 1.7 0 0 0-1.56-1.03h-.2v-2.4h.2A1.7 1.7 0 0 0 8.46 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.7-1.7.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56V5h2.4v.2a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03h.2v2.4h-.2A1.7 1.7 0 0 0 19.4 15Z"/></svg>
             </button>
             <button id="themeToggleButton" class="theme-toggle" title="切换浅色模式" aria-label="切换浅色模式">☀️</button>
             <button id="refreshButton" class="icon-button" title="刷新" aria-label="刷新">
@@ -143,9 +143,30 @@
 
         <div id="pricingDialog" class="confirm-backdrop" hidden>
           <section class="confirm-card pricing-card" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
-            <h2 id="pricingTitle">定价设置</h2>
-            <p>美元 / 100万 Token。每种模型独立估算，官方价格变化时可在这里调整。</p>
-            <div class="pricing-form">
+            <div class="settings-dialog-head">
+              <h2 id="pricingTitle">设置中心</h2>
+              <button id="closePricingButton" class="icon-button small dialog-close" type="button" title="关闭设置中心" aria-label="关闭设置中心">×</button>
+            </div>
+            <div class="settings-layout">
+              <div class="settings-tabs" role="tablist" aria-orientation="vertical" aria-label="设置中心选项">
+                <button id="settingsRefreshTab" class="settings-tab is-active" role="tab" aria-selected="true">刷新时间</button>
+                <button id="settingsPricingTab" class="settings-tab" role="tab" aria-selected="false">模型定价</button>
+                <button id="settingsDisplayTab" class="settings-tab" role="tab" aria-selected="false">显示模式</button>
+              </div>
+              <div class="settings-content">
+            <div id="refreshSettingsPanel" class="settings-panel">
+              <p>设置账号用量的自动刷新频率，默认每 30 分钟刷新一次。</p>
+              <div class="pricing-form">
+                <label class="price-field">
+                  <span>刷新间隔</span>
+                  <input id="refreshIntervalField" type="number" min="5" max="180" step="1" inputmode="numeric" />
+                </label>
+              </div>
+              <p class="hint">支持 5–180 分钟，保存后立即生效。</p>
+            </div>
+            <div id="pricingSettingsPanel" class="settings-panel" hidden>
+              <p>美元 / 100万 Token。每种模型独立估算，官方价格变化时可在这里调整。</p>
+              <div class="pricing-form">
               <label class="price-field price-model-field">
                 <span>模型</span>
                 <select id="pricingModelSelect"></select>
@@ -162,10 +183,20 @@
                 <span>输出</span>
                 <input id="outputPriceField" type="number" min="0" step="0.0001" inputmode="decimal" />
               </label>
+              </div>
+            </div>
+            <div id="displaySettingsPanel" class="settings-panel" hidden>
+              <p>控制悬浮窗是否始终显示在其他窗口之上。</p>
+              <label class="display-setting-row">
+                <input id="alwaysOnTopField" type="checkbox" />
+                <span>窗口置顶</span>
+              </label>
+              <p class="hint">关闭后，悬浮窗会遵循普通窗口层级。</p>
+            </div>
+              </div>
             </div>
             <div id="pricingStatus" class="switch-status" hidden></div>
             <div class="confirm-actions">
-              <button id="cancelPricingButton" class="text-button ghost">取消</button>
               <button id="resetPricingButton" class="text-button ghost">恢复默认</button>
               <button id="savePricingButton" class="text-button">保存</button>
             </div>

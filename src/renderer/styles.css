@@ -910,7 +910,87 @@ dd {
 }
 
 .pricing-card {
-  width: min(390px, 100%);
+  width: min(420px, 100%);
+}
+
+.settings-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dialog-close {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.settings-content {
+  min-width: 0;
+}
+
+.settings-tabs {
+  padding: 3px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.settings-tab {
+  min-height: 34px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  text-align: left;
+  padding: 0 9px;
+}
+
+.settings-tab.is-active {
+  background: var(--active-tab-bg);
+  color: var(--ink);
+}
+
+.settings-panel[hidden] {
+  display: none;
+}
+
+.display-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 720;
+  user-select: none;
+}
+
+.display-setting-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .theme-toggle {
@@ -1083,18 +1163,18 @@ dd {
 }
 
 .account-card {
-  gap: 6px;
-  padding: 8px;
+  gap: 4px;
+  padding: 6px;
 }
 
 .account-main {
-  gap: 6px;
+  gap: 4px;
 }
 
 .account-card-head,
 .account-card-actions,
 .account-quotas {
-  gap: 6px;
+  gap: 4px;
 }
 
 .account-title-line {
@@ -1106,7 +1186,7 @@ dd {
 }
 
 .mini-quota {
-  padding: 6px 7px;
+  padding: 5px 6px;
 }
 
 .mini-quota-head,
@@ -1119,18 +1199,23 @@ dd {
 }
 
 .mini-meter {
-  height: 6px;
-  margin-top: 6px;
+  height: 5px;
+  margin-top: 5px;
 }
 
 .account-token-line {
   line-height: 1.2;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .account-plan-inline,
 .mini-quota-head span {
-  font-size: 11px;
+  font-size: 10px;
+}
+
+.account-name-part,
+.account-username-part {
+  font-size: 12px;
 }
 
 .card-list {

@@ -10,6 +10,8 @@ const state = {
   theme: localStorage.getItem('codexUsageTheme') || 'dark',
   pricing: null,
   pricingModel: 'gpt-5.5',
+  settings: { refreshIntervalMinutes: 30, alwaysOnTop: true },
+  settingsTab: 'refresh',
   panelHeightTimer: null
 };
 
@@ -57,12 +59,20 @@ const els = {
   autoSwitchButton: document.getElementById('autoSwitchButton'),
   themeToggleButton: document.getElementById('themeToggleButton'),
   pricingDialog: document.getElementById('pricingDialog'),
+  settingsRefreshTab: document.getElementById('settingsRefreshTab'),
+  settingsPricingTab: document.getElementById('settingsPricingTab'),
+  settingsDisplayTab: document.getElementById('settingsDisplayTab'),
+  refreshSettingsPanel: document.getElementById('refreshSettingsPanel'),
+  pricingSettingsPanel: document.getElementById('pricingSettingsPanel'),
+  displaySettingsPanel: document.getElementById('displaySettingsPanel'),
+  refreshIntervalField: document.getElementById('refreshIntervalField'),
+  alwaysOnTopField: document.getElementById('alwaysOnTopField'),
   pricingModelSelect: document.getElementById('pricingModelSelect'),
   inputPriceField: document.getElementById('inputPriceField'),
   cachedInputPriceField: document.getElementById('cachedInputPriceField'),
   outputPriceField: document.getElementById('outputPriceField'),
   pricingStatus: document.getElementById('pricingStatus'),
-  cancelPricingButton: document.getElementById('cancelPricingButton'),
+  closePricingButton: document.getElementById('closePricingButton'),
   resetPricingButton: document.getElementById('resetPricingButton'),
   savePricingButton: document.getElementById('savePricingButton')
 };
@@ -549,7 +559,10 @@ function schedulePanelHeightResize() {
 }
 
 async function load() {
-  state.snapshot = await window.codexUsage.getSnapshot();
+  [state.snapshot, state.settings] = await Promise.all([
+    window.codexUsage.getSnapshot(),
+    window.codexUsage.getSettings()
+  ]);
   render();
 }
 
@@ -652,7 +665,36 @@ function readPricingFields() {
   return normalizePrice(result);
 }
 
+function setSettingsTab(tab) {
+  state.settingsTab = ['pricing', 'display'].includes(tab) ? tab : 'refresh';
+  const isPricing = state.settingsTab === 'pricing';
+  const isDisplay = state.settingsTab === 'display';
+  els.settingsRefreshTab.classList.toggle('is-active', !isPricing && !isDisplay);
+  els.settingsPricingTab.classList.toggle('is-active', isPricing);
+  els.settingsDisplayTab.classList.toggle('is-active', isDisplay);
+  els.settingsRefreshTab.setAttribute('aria-selected', String(!isPricing && !isDisplay));
+  els.settingsPricingTab.setAttribute('aria-selected', String(isPricing));
+  els.settingsDisplayTab.setAttribute('aria-selected', String(isDisplay));
+  els.refreshSettingsPanel.hidden = isPricing || isDisplay;
+  els.pricingSettingsPanel.hidden = !isPricing;
+  els.displaySettingsPanel.hidden = !isDisplay;
+  els.savePricingButton.textContent = isPricing ? '保存定价' : isDisplay ? '保存显示模式' : '保存刷新时间';
+  els.resetPricingButton.hidden = !isPricing;
+  if (!isPricing && !isDisplay) {
+    els.refreshIntervalField.value = String(state.settings.refreshIntervalMinutes || 30);
+    requestAnimationFrame(() => els.refreshIntervalField.focus());
+  } else if (isPricing) {
+    setPricingModelOptions();
+    setPricingFields();
+    requestAnimationFrame(() => els.pricingModelSelect.focus());
+  } else {
+    els.alwaysOnTopField.checked = state.settings.alwaysOnTop !== false;
+    requestAnimationFrame(() => els.alwaysOnTopField.focus());
+  }
+}
+
 function openPricingDialog() {
+  setSettingsTab('refresh');
   setPricingModelOptions();
   setPricingFields();
   setPricingStatus('');
@@ -804,7 +846,10 @@ els.closePanel.addEventListener('click', () => setPanelOpen(false));
 els.scrim.addEventListener('click', () => setPanelOpen(false));
 els.refreshButton.addEventListener('click', refresh);
 els.pricingSettingsButton.addEventListener('click', openPricingDialog);
-els.cancelPricingButton.addEventListener('click', closePricingDialog);
+els.settingsRefreshTab.addEventListener('click', () => setSettingsTab('refresh'));
+els.settingsPricingTab.addEventListener('click', () => setSettingsTab('pricing'));
+els.settingsDisplayTab.addEventListener('click', () => setSettingsTab('display'));
+els.closePricingButton.addEventListener('click', closePricingDialog);
 els.pricingModelSelect.addEventListener('change', () => {
   state.pricingModel = normalizeModelKey(els.pricingModelSelect.value);
   setPricingFields();
@@ -817,6 +862,31 @@ els.resetPricingButton.addEventListener('click', () => {
   schedulePanelHeightResize();
 });
 els.savePricingButton.addEventListener('click', () => {
+  if (state.settingsTab === 'refresh') {
+    const value = Number(els.refreshIntervalField.value);
+    if (!Number.isFinite(value) || value < 5 || value > 180) {
+      setPricingStatus('刷新间隔需为 5–180 分钟。', 'error');
+      return;
+    }
+    window.codexUsage.saveSettings({ refreshIntervalMinutes: Math.round(value) })
+      .then((settings) => {
+        state.settings = settings;
+        els.refreshIntervalField.value = String(settings.refreshIntervalMinutes);
+        setPricingStatus(`已设置为每 ${settings.refreshIntervalMinutes} 分钟自动刷新。`, 'success');
+      })
+      .catch((error) => setPricingStatus(String(error?.message || error || '刷新设置保存失败'), 'error'));
+    return;
+  }
+  if (state.settingsTab === 'display') {
+    window.codexUsage.saveSettings({ alwaysOnTop: els.alwaysOnTopField.checked })
+      .then((settings) => {
+        state.settings = settings;
+        els.alwaysOnTopField.checked = settings.alwaysOnTop !== false;
+        setPricingStatus(settings.alwaysOnTop ? '已开启窗口置顶。' : '已取消窗口置顶。', 'success');
+      })
+      .catch((error) => setPricingStatus(String(error?.message || error || '显示模式保存失败'), 'error'));
+    return;
+  }
   try {
     const price = readPricingFields();
     const pricing = savePricingSettings({
