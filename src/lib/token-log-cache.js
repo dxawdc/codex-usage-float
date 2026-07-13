@@ -27,7 +27,7 @@ function createTokenLogCache({
   hasTokenTotals,
   rateLimitFingerprint,
   identityKey,
-  maxAgeMs = 31 * 24 * 60 * 60 * 1000,
+  maxAgeMs = Number.POSITIVE_INFINITY,
   concurrency = 4
 }) {
   const fileCache = new Map();

@@ -23,8 +23,39 @@ const snapshot = Object.freeze({
         totalTokens: 1500,
         eventCount: 1,
         modelBreakdown: [{ model: 'gpt-5.5', inputTokens: 1000, cachedInputTokens: 250, outputTokens: 500, totalTokens: 1500 }]
+      },
+      last7d: {
+        inputTokens: 7000,
+        cachedInputTokens: 3500,
+        outputTokens: 1400,
+        totalTokens: 8400,
+        cacheRate: 50,
+        eventCount: 4,
+        modelBreakdown: [
+          { model: 'gpt-5.5', inputTokens: 4000, cachedInputTokens: 2000, outputTokens: 800, totalTokens: 4800 },
+          { model: 'gpt-5.4-mini', inputTokens: 3000, cachedInputTokens: 1500, outputTokens: 600, totalTokens: 3600 }
+        ]
+      },
+      last30d: {
+        inputTokens: 12000,
+        cachedInputTokens: 6000,
+        outputTokens: 2400,
+        totalTokens: 14400,
+        cacheRate: 50,
+        eventCount: 7,
+        modelBreakdown: [{ model: 'gpt-5.5', inputTokens: 12000, cachedInputTokens: 6000, outputTokens: 2400, totalTokens: 14400 }]
+      },
+      lifetime: {
+        inputTokens: 20000,
+        cachedInputTokens: 10000,
+        outputTokens: 4000,
+        totalTokens: 24000,
+        cacheRate: 50,
+        eventCount: 12,
+        modelBreakdown: [{ model: 'gpt-5.5', inputTokens: 20000, cachedInputTokens: 10000, outputTokens: 4000, totalTokens: 24000 }]
       }
-    }
+    },
+    daily: [{ date: '2026-07-12', totalTokens: 8400, eventCount: 4 }]
   }
 });
 

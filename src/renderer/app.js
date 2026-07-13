@@ -50,6 +50,7 @@ const els = {
   localOutputCost: document.getElementById('localOutputCost'),
   localTokenMeta: document.getElementById('localTokenMeta'),
   localModelBreakdown: document.getElementById('localModelBreakdown'),
+  localCompactGrid: document.getElementById('localCompactGrid'),
   confirmDialog: document.getElementById('confirmDialog'),
   confirmTitle: document.getElementById('confirmTitle'),
   confirmBody: document.getElementById('confirmBody'),
@@ -293,6 +294,11 @@ function tokenTotal(tokenUsage, key) {
   return value?.totalTokens;
 }
 
+function formatDateKey(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[2]}/${match[3]}` : '';
+}
+
 function tokenUsageHint(tokenUsage) {
   if (tokenUsage?.source === 'account-profile') return '';
   if (tokenUsage?.attributionConfidence === 'high') return ' · 高可信归属';
@@ -349,6 +355,9 @@ function renderAccounts(accounts = []) {
     const today = formatTokens(tokenTotal(account.tokenUsage, 'today'));
     const last7d = formatTokens(tokenTotal(account.tokenUsage, 'last7d'));
     const last30d = formatTokens(tokenTotal(account.tokenUsage, 'last30d'));
+    const lifetime = formatTokens(tokenTotal(account.tokenUsage, 'lifetime'));
+    const peak = formatTokens(tokenTotal(account.tokenUsage, 'peakDaily'));
+    const peakDate = formatDateKey(account.tokenUsage?.peakDate);
 
     const main = document.createElement('div');
     main.className = 'account-main';
@@ -414,7 +423,7 @@ function renderAccounts(accounts = []) {
 
     const tokenLine = document.createElement('p');
     tokenLine.className = 'account-token-line';
-    tokenLine.textContent = `Token 今日 ${today} · 7天 ${last7d} · 30天 ${last30d}${tokenUsageHint(account.tokenUsage)}`;
+    tokenLine.textContent = `Token 今日 ${today} · 7天 ${last7d} · 30天 ${last30d} · 累计 ${lifetime} · 峰值 ${peak}${peakDate ? ` (${peakDate})` : ''}${tokenUsageHint(account.tokenUsage)}`;
     if (account.usageError) tokenLine.textContent += ` · ${account.usageError}`;
 
     main.append(header, quotas, tokenLine);

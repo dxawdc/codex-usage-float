@@ -1249,6 +1249,10 @@ dd {
   font-size: 10px;
 }
 
+.local-section .segmented {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .actions {
   margin-top: 10px;
 }

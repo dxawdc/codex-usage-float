@@ -797,13 +797,32 @@ function localDateKey(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function accountUsageBucketDate(bucket) {
+  return String(bucket?.start_date || bucket?.startDate || bucket?.date || '').slice(0, 10);
+}
+
+function accountUsageBucketTokens(bucket) {
+  return Math.max(0, Number(
+    bucket?.tokens ?? bucket?.total_tokens ?? bucket?.totalTokens ?? bucket?.usage
+  ) || 0);
+}
+
+function accountLifetimeTokens(payload, summary) {
+  return summary?.lifetime_tokens ?? summary?.lifetimeTokens ??
+    summary?.lifetime?.tokens ?? summary?.lifetime?.total_tokens ?? summary?.lifetime?.totalTokens ??
+    summary?.total_tokens ?? summary?.totalTokens ??
+    payload?.lifetime_tokens ?? payload?.lifetimeTokens ??
+    payload?.lifetime?.tokens ?? payload?.lifetime?.total_tokens ?? payload?.lifetime?.totalTokens ??
+    payload?.total_tokens ?? payload?.totalTokens;
+}
+
 function sumDailyTokenBuckets(buckets, days, now = new Date()) {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
   const startKey = localDateKey(start);
   return buckets.reduce((total, bucket) => {
-    const dateKey = String(bucket?.start_date || bucket?.startDate || '').slice(0, 10);
+    const dateKey = accountUsageBucketDate(bucket);
     if (!dateKey || dateKey < startKey) return total;
-    return total + Math.max(0, Number(bucket?.tokens) || 0);
+    return total + accountUsageBucketTokens(bucket);
   }, 0);
 }
 
@@ -811,22 +830,39 @@ function mapAccountTokenUsagePayload(payload, accountKey, previous = null) {
   const profileIdentity = extractProfileIdentity(payload);
   const buckets = payload?.daily_usage_buckets || payload?.dailyUsageBuckets ||
     payload?.stats?.daily_usage_buckets || payload?.stats?.dailyUsageBuckets;
+  const summary = payload?.stats || payload?.summary || payload || {};
   if (!Array.isArray(buckets)) {
-    return profileIdentity.hasProfileIdentity
+    const lifetime = accountLifetimeTokens(payload, summary);
+    return profileIdentity.hasProfileIdentity || isFiniteNumberValue(lifetime)
       ? {
           source: 'account-profile',
           sourceLabel: '\u8d26\u53f7\u6570\u636e',
           updatedAt: new Date().toISOString(),
           accountKey,
-          profileIdentity
+          profileIdentity,
+          lifetime: isFiniteNumberValue(lifetime) ? totalOnlyTokenTotals(lifetime) : null,
+          peakDaily: null,
+          peakDate: null,
+          dailyUsage: []
         }
       : null;
   }
 
-  const summary = payload?.stats || payload?.summary || payload || {};
+  const dailyUsage = buckets
+    .map((bucket) => ({
+      date: accountUsageBucketDate(bucket),
+      totalTokens: accountUsageBucketTokens(bucket)
+    }))
+    .filter((bucket) => bucket.date)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const peakDaily = dailyUsage.reduce(
+    (peak, bucket) => bucket.totalTokens > peak.totalTokens ? bucket : peak,
+    { date: null, totalTokens: 0 }
+  );
+  const lifetime = accountLifetimeTokens(payload, summary);
   const today = sumDailyTokenBuckets(buckets, 1);
   const latestBucketDate = buckets
-    .map((bucket) => String(bucket?.start_date || bucket?.startDate || '').slice(0, 10))
+    .map((bucket) => accountUsageBucketDate(bucket))
     .filter(Boolean)
     .sort()
     .at(-1) || null;
@@ -843,9 +879,12 @@ function mapAccountTokenUsagePayload(payload, accountKey, previous = null) {
     bucketCount: buckets.length,
     latestBucketDate,
     mayBeDelayed: latestBucketDate !== localDateKey(),
-    lifetime: totalOnlyTokenTotals(
-      summary?.lifetime_tokens ?? summary?.lifetimeTokens ?? payload?.lifetime_tokens ?? payload?.lifetimeTokens
-    ),
+    lifetime: isFiniteNumberValue(lifetime)
+      ? totalOnlyTokenTotals(lifetime)
+      : null,
+    peakDaily: peakDaily.date ? totalOnlyTokenTotals(peakDaily.totalTokens) : null,
+    peakDate: peakDaily.date,
+    dailyUsage,
     today: totalOnlyTokenTotals(today),
     last24h: totalOnlyTokenTotals(today),
     last7d: totalOnlyTokenTotals(sumDailyTokenBuckets(buckets, 7)),
@@ -1254,8 +1293,10 @@ async function collectLocalTokenSummary() {
   const windows = {
     today: { start: new Date(new Date(nowMs).getFullYear(), new Date(nowMs).getMonth(), new Date(nowMs).getDate()).getTime(), total: emptyTokenTotals(), models: {}, eventCount: 0 },
     last7d: { start: nowMs - 7 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 },
-    last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 }
+    last30d: { start: nowMs - 30 * 24 * 60 * 60 * 1000, total: emptyTokenTotals(), models: {}, eventCount: 0 },
+    lifetime: { start: Number.NEGATIVE_INFINITY, total: emptyTokenTotals(), models: {}, eventCount: 0 }
   };
+  const daily = new Map();
   let scannedEventCount = 0;
   let duplicateEventCount = 0;
   let latestEventAt = null;
@@ -1279,6 +1320,12 @@ async function collectLocalTokenSummary() {
           addModelTokenTotals(window.models, model, delta);
           window.eventCount += 1;
         }
+      }
+      const date = localDateKey(timestamp);
+      if (date) {
+        if (!daily.has(date)) daily.set(date, { total: emptyTokenTotals(), eventCount: 0 });
+        addTokenTotals(daily.get(date).total, delta);
+        daily.get(date).eventCount += 1;
       }
       latestEventAt = latestEventAt ? Math.max(latestEventAt, timestamp) : timestamp;
     }
@@ -1310,8 +1357,12 @@ async function collectLocalTokenSummary() {
     windows: {
       today: mapWindow(windows.today),
       last7d: mapWindow(windows.last7d),
-      last30d: mapWindow(windows.last30d)
+      last30d: mapWindow(windows.last30d),
+      lifetime: mapWindow(windows.lifetime)
     },
+    daily: [...daily.entries()]
+      .map(([date, value]) => ({ date, ...value.total, eventCount: value.eventCount }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
     sourceFileCount: loadedLogs.logs.length,
     failedFileCount: loadedLogs.failedFileCount,
     eventCount: scannedEventCount,
@@ -2061,6 +2112,7 @@ async function refreshUsageInternal(reason = 'manual') {
     });
     tokenUsage = {
       ...localEstimate,
+      ...accountTokenUsage,
       profileIdentity: accountTokenUsage?.profileIdentity || localEstimate.profileIdentity
     };
   }

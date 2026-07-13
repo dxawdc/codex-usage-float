@@ -52,3 +52,16 @@ test('reads only appended JSONL data without duplicating cached events', async (
   assert.deepEqual(second.logs[0].events.map((item) => item.delta.totalTokens), [10, 15]);
   assert.equal(second.logs[0].events[1].eventAccountKey, 'hash:account-a');
 });
+
+test('retains historical events for lifetime totals', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-log-cache-lifetime-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'old-session.jsonl');
+  const oldTimestamp = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+  await fs.writeFile(file, `${event(42, oldTimestamp)}\n`);
+
+  const cache = createCache();
+  const result = await cache.loadTokenLogs([file]);
+  assert.equal(result.logs[0].events.length, 1);
+  assert.equal(result.logs[0].events[0].delta.totalTokens, 42);
+});

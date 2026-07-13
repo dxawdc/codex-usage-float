@@ -34,6 +34,10 @@ async function main() {
         const displayPanel = document.getElementById('displaySettingsPanel');
         const tabsLayout = getComputedStyle(document.querySelector('.settings-tabs')).flexDirection;
         const defaultInterval = document.getElementById('refreshIntervalField').value;
+        document.querySelector('[data-local-range="lifetime"]').click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const lifetimeCompactVisible = !document.getElementById('localCompactGrid').hidden;
+        const modelColumns = getComputedStyle(document.getElementById('localModelBreakdown')).gridTemplateColumns;
         pricingTab.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const pricingTabVisible = !pricingPanel.hidden && refreshPanel.hidden;
@@ -58,6 +62,8 @@ async function main() {
           displayTabVisible,
           tabsLayout,
           defaultInterval,
+          lifetimeCompactVisible,
+          modelColumns,
           closeButtonWorks: document.getElementById('pricingDialog').hidden
         };
       })();
@@ -74,6 +80,8 @@ async function main() {
     assert.equal(result.displayTabVisible, true, 'display mode tab did not switch');
     assert.equal(result.tabsLayout, 'column', 'settings tabs are not displayed on the left');
     assert.equal(result.defaultInterval, '30', 'refresh interval default is not 30 minutes');
+    assert.equal(result.lifetimeCompactVisible, true, 'lifetime local summary is not visible');
+    assert.match(result.modelColumns, /repeat\(2,/, 'local model usage is not displayed in two columns');
     assert.equal(result.closeButtonWorks, true, 'settings close button did not close the dialog');
     console.log(`Pricing select smoke test passed: ${result.optionCount} options, ${result.colorScheme} native scheme`);
   } finally {
