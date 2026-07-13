@@ -3,14 +3,14 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.1-2f81f7" alt="release v2.0.1" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.2-2f81f7" alt="release v2.0.2" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-39-47848f" alt="Electron 39" />
   </p>
 </div>
 
-当前源码版本为 `v2.0.2`；该版本的 EXE 仍处于本地验证阶段，尚未创建 GitHub Release。
+当前正式版本为 `v2.0.2`，可从 GitHub Releases 下载 Windows 便携版 EXE。
 
 一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持深色/浅色主题和自定义 Token 定价。
 
@@ -18,19 +18,19 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v2.0.1](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.1/CodexUsageFloat-2.0.1.exe)
+- **推荐下载**：[CodexUsageFloat v2.0.2](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.2/CodexUsageFloat-2.0.2.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
-| `v2.0.1` | `CodexUsageFloat-2.0.1.exe` | `0DB0910D9121FBC214DB6C7A70A71BC916AADB399D7DB8E7093B701C84CBECD9` |
+| `v2.0.2` | `CodexUsageFloat-2.0.2.exe` | `E81F24B9C646A4FEFB94CE25046FA743C3E5243C94A48BFB73E2C9AA7A7E230B` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.0.1.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.0.2.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -278,7 +278,7 @@ AGENTS.md                 项目维护与交付规则
 - 本地日志汇总新增“累计”统计周期，展示全部已扫描本地会话的 Token 汇总。
 - 账号 Token 概览新增接口提供的“累计”和“峰值”字段；峰值同时显示对应日期。
 - 本地日志的模型用量保持双列布局，累计、7 天和 30 天周期均使用紧凑汇总视图；用量报告功能暂未纳入本版本。
-- 完成 Windows portable EXE `CodexUsageFloat-2.0.2.exe` 本地验证，SHA-256 为 `E81F24B9C646A4FEFB94CE25046FA743C3E5243C94A48BFB73E2C9AA7A7E230B`；尚未发布到 GitHub Release。
+- 发布 Windows portable EXE `CodexUsageFloat-2.0.2.exe`，SHA-256 为 `E81F24B9C646A4FEFB94CE25046FA743C3E5243C94A48BFB73E2C9AA7A7E230B`。
 
 ### v2.0.1 - 2026-07-12
 
