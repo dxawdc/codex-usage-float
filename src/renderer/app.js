@@ -12,7 +12,11 @@ const state = {
   pricingModel: 'gpt-5.5',
   settings: { refreshIntervalMinutes: 30, alwaysOnTop: true },
   settingsTab: 'refresh',
-  panelHeightTimer: null
+  panelHeightTimer: null,
+  orbRemaining: null,
+  orbPercentAnimationFrame: null,
+  orbPercentAnimationTimer: null,
+  orbPulseTimer: null
 };
 
 const els = {
@@ -116,6 +120,48 @@ function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '--%';
   return `${clamp(number, 0, 100).toFixed(number < 10 ? 1 : 0)}%`;
+}
+
+function updateOrbPercent(nextRemaining) {
+  const previousRemaining = state.orbRemaining;
+  const canAnimate = Number.isFinite(previousRemaining)
+    && Number.isFinite(nextRemaining)
+    && Math.abs(previousRemaining - nextRemaining) > 0.01;
+  state.orbRemaining = nextRemaining;
+
+  if (!canAnimate) {
+    els.percentText.textContent = formatPercent(nextRemaining);
+    return;
+  }
+
+  if (state.orbPercentAnimationFrame) cancelAnimationFrame(state.orbPercentAnimationFrame);
+  clearTimeout(state.orbPercentAnimationTimer);
+  clearTimeout(state.orbPulseTimer);
+  els.orb.classList.remove('is-updating');
+  void els.orb.offsetWidth;
+  els.orb.classList.add('is-updating');
+
+  const duration = 460;
+  const startedAt = performance.now();
+  const finish = () => {
+    if (state.orbPercentAnimationFrame) cancelAnimationFrame(state.orbPercentAnimationFrame);
+    state.orbPercentAnimationFrame = null;
+    clearTimeout(state.orbPercentAnimationTimer);
+    els.percentText.textContent = formatPercent(nextRemaining);
+  };
+  const tick = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    els.percentText.textContent = formatPercent(previousRemaining + (nextRemaining - previousRemaining) * eased);
+    if (progress < 1) {
+      state.orbPercentAnimationFrame = requestAnimationFrame(tick);
+      return;
+    }
+    finish();
+  };
+  state.orbPercentAnimationFrame = requestAnimationFrame(tick);
+  state.orbPercentAnimationTimer = setTimeout(finish, duration + 80);
+  state.orbPulseTimer = setTimeout(() => els.orb.classList.remove('is-updating'), 640);
 }
 
 function formatNumber(value) {
@@ -316,6 +362,13 @@ function normalizeResetCards(cards = []) {
   return rows;
 }
 
+function availableResetCardCount(account) {
+  const cards = Array.isArray(account?.resetCards)
+    ? account.resetCards
+    : account?.usage?.resetCards || [];
+  return cards.reduce((total, card) => total + Math.max(0, Math.floor(Number(card?.count) || 0)), 0);
+}
+
 function createMiniQuota(label, window) {
   const remaining = isFiniteValue(window?.remainingPercent) ? Number(window.remainingPercent) : Number.NaN;
   const safeRemaining = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
@@ -358,6 +411,7 @@ function renderAccounts(accounts = []) {
     const lifetime = formatTokens(tokenTotal(account.tokenUsage, 'lifetime'));
     const peak = formatTokens(tokenTotal(account.tokenUsage, 'peakDaily'));
     const peakDate = formatDateKey(account.tokenUsage?.peakDate);
+    const resetCardCount = availableResetCardCount(account);
 
     const main = document.createElement('div');
     main.className = 'account-main';
@@ -378,7 +432,11 @@ function renderAccounts(accounts = []) {
     planNode.className = 'account-plan-inline';
     planNode.textContent = `${formatTier(account.planTier)} · 到期 ${formatMinute(account.membershipExpiresAt)}`;
 
-    nameLine.append(nicknameNode, usernameNode, planNode);
+    const resetCardNode = document.createElement('span');
+    resetCardNode.className = `account-reset-card-inline${resetCardCount ? '' : ' is-empty'}`;
+    resetCardNode.textContent = `可用重置卡 ${formatNumber(resetCardCount)} 张`;
+
+    nameLine.append(nicknameNode, usernameNode, planNode, resetCardNode);
     if (account.isCurrent) {
       const activeBadge = document.createElement('span');
       activeBadge.className = 'account-active-badge';
@@ -531,7 +589,7 @@ function render() {
   els.root.style.setProperty('--orb-size', `${state.size}px`);
   els.ringFill.style.setProperty('--angle', `${remainingSafe * 3.6}deg`);
   els.tierText.textContent = formatTier(currentAccount?.planTier || data.planTier);
-  els.percentText.textContent = formatPercent(remaining);
+  updateOrbPercent(remaining);
   els.percentText.style.color = accent;
   els.orbCaption.textContent = '5h 剩余';
   els.lastSyncedText.textContent = data.lastSyncedAt

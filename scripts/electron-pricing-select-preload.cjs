@@ -9,9 +9,18 @@ const snapshot = Object.freeze({
     username: 'smoke@example.com',
     isCurrent: true,
     planTier: 'Plus',
-    usageWindows: { fiveHour: { remainingPercent: 82 } }
+    usageWindows: { fiveHour: { remainingPercent: 82 } },
+    resetCards: [{ label: 'Codex 重置卡', count: 3 }]
   },
-  accounts: [],
+  accounts: [{
+    id: 'smoke-account',
+    nickname: 'Smoke',
+    username: 'smoke@example.com',
+    isCurrent: true,
+    planTier: 'Plus',
+    usageWindows: { fiveHour: { remainingPercent: 82 } },
+    resetCards: [{ label: 'Codex 重置卡', count: 3 }]
+  }],
   resetCards: [],
   localTokenSummary: {
     sourceFileCount: 1,
@@ -59,6 +68,18 @@ const snapshot = Object.freeze({
   }
 });
 
+const refreshedSnapshot = Object.freeze({
+  ...snapshot,
+  currentAccount: {
+    ...snapshot.currentAccount,
+    usageWindows: { fiveHour: { remainingPercent: 57 } }
+  },
+  accounts: snapshot.accounts.map((account) => ({
+    ...account,
+    usageWindows: { fiveHour: { remainingPercent: 57 } }
+  }))
+});
+
 const layout = Object.freeze({ orbX: 8, orbY: 8, panelX: 148, side: 'right' });
 const noOp = () => Promise.resolve();
 
@@ -66,7 +87,7 @@ contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => Promise.resolve(snapshot),
   getSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
   saveSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
-  refresh: () => Promise.resolve(snapshot),
+  refresh: () => Promise.resolve(refreshedSnapshot),
   openWeb: noOp,
   openAbout: noOp,
   prepareAddAccount: noOp,

@@ -3,14 +3,14 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.2-2f81f7" alt="release v2.0.2" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.3-2f81f7" alt="release v2.0.3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-39-47848f" alt="Electron 39" />
   </p>
 </div>
 
-当前正式版本为 `v2.0.2`，可从 GitHub Releases 下载 Windows 便携版 EXE。
+当前正式版本为 `v2.0.3`，可从 GitHub Releases 下载 Windows 便携版 EXE。
 
 一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持深色/浅色主题和自定义 Token 定价。
 
@@ -18,19 +18,19 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v2.0.2](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.2/CodexUsageFloat-2.0.2.exe)
+- **推荐下载**：[CodexUsageFloat v2.0.3](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.3/CodexUsageFloat-2.0.3.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
-| `v2.0.2` | `CodexUsageFloat-2.0.2.exe` | `E81F24B9C646A4FEFB94CE25046FA743C3E5243C94A48BFB73E2C9AA7A7E230B` |
+| `v2.0.3` | `CodexUsageFloat-2.0.3.exe` | `D1F166298819A9B3FC40EF1E6D74A6492971D7E71D1F13AAD9EEFEDBC3CD9FA1` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.0.2.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.0.3.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -65,12 +65,12 @@ Get-FileHash .\CodexUsageFloat-2.0.2.exe -Algorithm SHA256
 
 ## 主要功能
 
-- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
-- **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、5 小时额度和 1 周额度；账号超过 3 个时在列表内滚动。
+- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比；刷新后剩余百分比变化会以短动画过渡；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
+- **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、可用重置卡数量、5 小时额度和 1 周额度；账号超过 3 个时在列表内滚动。
 - **可控账号切换**：提供手动切换与自动切换；均只原子替换 `~/.codex/auth.json`，项目、任务、会话、插件和配置继续共用。自动切换会先关闭完整 Codex 桌面应用，保存当前最新认证，再切换并重新启动。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天、30 天、累计与单日峰值（含峰值日期）。数据优先来自账号接口，可能存在同步延迟；接口未提供的字段会显示 `--`。
 - **本地日志汇总**：按今日、7 天、30 天和累计切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数；按模型双列展示用量与费用，并使用独立模型费率估算总费用。
-- **重置卡列表**：显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
+- **重置卡列表**：账号卡片内汇总显示可用重置卡数量，详情区显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
 - **设置中心**：支持深色/浅色主题；在统一设置中心的“刷新时间 / 模型定价 / 显示模式”左侧 Tab 中调整自动刷新间隔（默认 30 分钟）、各模型输入/缓存输入/输出单价和窗口置顶状态。
 - **过程反馈**：导入已有账号时明确提示已更新；账号切换展示进行中、成功或失败状态。
@@ -122,11 +122,11 @@ npm run dev
 应用读取 `~/.codex/auth.json` 获取当前认证上下文，并请求当前账号可访问的 Codex / ChatGPT 数据接口：
 
 - 个人资料：显示昵称和用户名。
-- 会员信息：计划等级和会员到期时间。
+- 会员信息：计划等级和会员到期时间。付费账号会在必要时通过 ChatGPT 订阅接口校准真实到期时间，避免过期 JWT 声明继续显示旧日期。
 - 额度窗口：5 小时、1 周的剩余百分比和重置时间。
 - 重置卡：可用数量、适用窗口和有效期信息。
 
-接口字段可能变化或暂时不可访问。刷新失败时，应用优先保留最近一次成功快照，避免用空响应覆盖有效数据。
+订阅到期时间探测与普通用量刷新分开节流：本地已有可信未来到期时间且距离到期超过 3 天时不请求订阅接口；3 天内、缺少到期时间或本地日期明显过期时才有资格探测，正常情况下 6 小时内最多探测一次。接口字段可能变化或暂时不可访问。刷新失败时，应用优先保留最近一次成功快照，避免用空响应覆盖有效数据。
 
 ### 账号 Token 概览
 
@@ -230,7 +230,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-2.0.2.exe
+CodexUsageFloat-2.0.3.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
@@ -241,7 +241,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-
 npm run build
 ```
 
-`dist/` 默认已加入 `.gitignore`。`v2.0.1` 的 portable EXE 作为已验证发布产物按本次发布要求显式纳入仓库；后续构建产物仍需经过发布检查后才可提交或上传。
+`dist/` 默认已加入 `.gitignore`。正式发布的 portable EXE 只有在经过检查并按发布要求确认后才会显式纳入仓库或上传 GitHub Release。
 
 项目维护者进行安全检查、正式打包和 GitHub Release 时，请遵循 [安全发布与 GitHub Release 检查清单](docs/RELEASE_CHECKLIST.md)。
 
@@ -257,7 +257,7 @@ src/renderer/styles.css  UI 样式和自适应布局
 build/                   应用图标
 docs/screenshots/        README 示例截图
 docs/RELEASE_CHECKLIST.md 安全发布与 GitHub Release 检查清单
-scripts/                  静态检查与渲染层契约验证
+scripts/                  静态检查、渲染层契约验证与 README 截图生成
 test/                     Node.js 单元与流程测试
 AGENTS.md                 项目维护与交付规则
 ```
@@ -272,6 +272,17 @@ AGENTS.md                 项目维护与交付规则
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 版本更新记录
+
+### v2.0.3 - 2026-07-14
+
+相对上个已发布版本 `v2.0.2`，本次更新包括：
+
+- 新增真实订阅到期时间校准：付费账号在缺少到期时间、日期已过期或距离到期 3 天内时，才通过 ChatGPT 订阅接口探测；正常情况下 6 小时内最多探测一次。
+- 修复 JWT 中旧的 `chatgpt_subscription_active_until` 导致 Plus 账号继续显示过期日期的问题；已拿到真实未来日期后会优先复用，避免高频请求订阅接口。
+- 账号卡片新增可用重置卡数量摘要，便于在多账号看板内直接比较各账号可用重置卡。
+- 悬浮球剩余额度刷新时增加短动画反馈，并补充渲染层冒烟测试覆盖刷新动画、重置卡摘要和设置中心。
+- README 预览截图已使用示例数据重新生成，展示新版多账号看板、账号切换确认和浅色设置中心。
+- 发布 Windows portable EXE `CodexUsageFloat-2.0.3.exe`，SHA-256 为 `D1F166298819A9B3FC40EF1E6D74A6492971D7E71D1F13AAD9EEFEDBC3CD9FA1`。
 
 ### v2.0.2 - 2026-07-13
 

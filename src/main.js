@@ -10,6 +10,10 @@ const { createCodexProcessManager } = require('./lib/codex-process-manager');
 const { mergePatch, mergeSparse } = require('./lib/object-utils');
 const { AuthRequestError, createJsonFetcher, throwForAuthFailure } = require('./lib/usage-http');
 const { createTokenLogCache } = require('./lib/token-log-cache');
+const {
+  firstFreshMembershipExpiresAt,
+  maybeFetchSubscriptionSnapshot
+} = require('./lib/subscription-expiry');
 
 const APP_URL = 'https://chatgpt.com';
 const GITHUB_REPO_URL = 'https://github.com/dxawdc/codex-usage-float';
@@ -449,6 +453,7 @@ function buildStoredAccount(authJson, local, previous = {}) {
   const now = new Date().toISOString();
   const accountKey = local.accountKey || identityKey(local.userId || local.accountId) || crypto.randomUUID();
   const profileIdentity = local.profileIdentity || previous.tokenUsage?.profileIdentity || {};
+  const planTier = local.planTier || previous.planTier || null;
   return {
     id: previous.id || crypto.randomUUID(),
     nickname: cleanText(profileIdentity.nickname) || cleanText(previous.nickname) || cleanText(local.nickname) ||
@@ -458,8 +463,10 @@ function buildStoredAccount(authJson, local, previous = {}) {
     accountKey,
     accountId: local.accountId || previous.accountId || null,
     userId: local.userId || previous.userId || null,
-    planTier: local.planTier || previous.planTier || null,
-    membershipExpiresAt: local.membershipExpiresAt || previous.membershipExpiresAt || null,
+    planTier,
+    membershipExpiresAt: firstFreshMembershipExpiresAt(planTier, local.membershipExpiresAt, previous.membershipExpiresAt),
+    subscriptionWillRenew: local.subscriptionWillRenew ?? previous.subscriptionWillRenew ?? null,
+    subscriptionLastCheckedAt: local.subscriptionLastCheckedAt || previous.subscriptionLastCheckedAt || null,
     authJson,
     usage: previous.usage || null,
     tokenUsage: previous.tokenUsage || null,
@@ -483,6 +490,8 @@ function accountView(account, currentAccountKey = null) {
     accountKey: account.accountKey,
     planTier: account.planTier,
     membershipExpiresAt: account.membershipExpiresAt,
+    subscriptionWillRenew: account.subscriptionWillRenew ?? null,
+    subscriptionLastCheckedAt: account.subscriptionLastCheckedAt || null,
     usageWindows: account.usage?.usageWindows || {},
     resetCards: account.resetCards || account.usage?.resetCards || [],
     tokenUsage: account.tokenUsage || null,
@@ -496,14 +505,17 @@ function accountView(account, currentAccountKey = null) {
 }
 
 function accountFromCurrent(local, usage, tokenUsage, resetCards, syncedAt, authStatus = 'active', usageError = null) {
+  const planTier = usage?.planTier || local.planTier;
   return {
     id: 'current',
     nickname: local.nickname,
     username: local.username,
     label: accountLabel(local),
     accountKey: local.accountKey,
-    planTier: usage?.planTier || local.planTier,
-    membershipExpiresAt: usage?.membershipExpiresAt || local.membershipExpiresAt,
+    planTier,
+    membershipExpiresAt: firstFreshMembershipExpiresAt(planTier, usage?.membershipExpiresAt, local.membershipExpiresAt),
+    subscriptionWillRenew: usage?.subscriptionWillRenew ?? local.subscriptionWillRenew ?? null,
+    subscriptionLastCheckedAt: usage?.subscriptionLastCheckedAt || local.subscriptionLastCheckedAt || null,
     usage: { usageWindows: usage?.usageWindows || {}, resetCards },
     usageWindows: usage?.usageWindows || {},
     resetCards: resetCards || [],
@@ -1446,6 +1458,19 @@ async function refreshStoredAccount(account) {
       ? inferResetCardExpiry(fetchedUsageSnapshot.resetCards || account.resetCards || [], account.resetCards)
       : account.resetCards || account.usage?.resetCards || [];
     const validated = Boolean(__authValidated || fetchedTokenUsage);
+    const fetchedPlanTier = fetchedUsageSnapshot.planTier || account.planTier || local.planTier;
+    const baseMembershipExpiresAt = firstFreshMembershipExpiresAt(
+      fetchedPlanTier,
+      fetchedUsageSnapshot.membershipExpiresAt,
+      account.membershipExpiresAt,
+      local.membershipExpiresAt
+    );
+    const subscriptionSnapshot = await maybeFetchSubscriptionSnapshot(net, local, {
+      planTier: fetchedPlanTier,
+      membershipExpiresAt: baseMembershipExpiresAt || fetchedUsageSnapshot.membershipExpiresAt || account.membershipExpiresAt || local.membershipExpiresAt,
+      subscriptionLastCheckedAt: account.subscriptionLastCheckedAt || local.subscriptionLastCheckedAt
+    });
+    const planTier = subscriptionSnapshot?.planTier || fetchedPlanTier;
     return {
       ...account,
       nickname: profileIdentity.nickname || account.nickname || local.nickname,
@@ -1453,8 +1478,17 @@ async function refreshStoredAccount(account) {
       accountKey: local.accountKey || account.accountKey,
       accountId: local.accountId || account.accountId,
       userId: local.userId || account.userId,
-      planTier: fetchedUsageSnapshot.planTier || account.planTier || local.planTier,
-      membershipExpiresAt: fetchedUsageSnapshot.membershipExpiresAt || account.membershipExpiresAt || local.membershipExpiresAt,
+      planTier,
+      membershipExpiresAt: firstFreshMembershipExpiresAt(
+        planTier,
+        subscriptionSnapshot?.membershipExpiresAt,
+        baseMembershipExpiresAt,
+        fetchedUsageSnapshot.membershipExpiresAt,
+        account.membershipExpiresAt,
+        local.membershipExpiresAt
+      ),
+      subscriptionWillRenew: subscriptionSnapshot?.subscriptionWillRenew ?? account.subscriptionWillRenew ?? null,
+      subscriptionLastCheckedAt: subscriptionSnapshot?.subscriptionLastCheckedAt || account.subscriptionLastCheckedAt || local.subscriptionLastCheckedAt || null,
       usage,
       tokenUsage,
       resetCards,
@@ -2093,7 +2127,45 @@ async function refreshUsageInternal(reason = 'manual') {
     },
     page
   );
-  const merged = mergeSparse(fallback, direct);
+  let merged = mergeSparse(fallback, direct);
+  const basePlanTier = merged.planTier || local.planTier;
+  const baseMembershipExpiresAt = firstFreshMembershipExpiresAt(
+    basePlanTier,
+    merged.membershipExpiresAt,
+    sameAccount ? state.snapshot?.currentAccount?.membershipExpiresAt : null,
+    sameAccount ? state.snapshot?.membershipExpiresAt : null,
+    local.membershipExpiresAt
+  );
+  const subscriptionSnapshot = await maybeFetchSubscriptionSnapshot(net, local, {
+    planTier: basePlanTier,
+    membershipExpiresAt: baseMembershipExpiresAt ||
+      (sameAccount ? state.snapshot?.currentAccount?.membershipExpiresAt : null) ||
+      (sameAccount ? state.snapshot?.membershipExpiresAt : null) ||
+      merged.membershipExpiresAt ||
+      local.membershipExpiresAt,
+    subscriptionLastCheckedAt: state.snapshot?.currentAccount?.subscriptionLastCheckedAt ||
+      state.snapshot?.subscriptionLastCheckedAt ||
+      local.subscriptionLastCheckedAt
+  });
+  const subscriptionPlanTier = subscriptionSnapshot?.planTier || basePlanTier;
+  merged = {
+    ...merged,
+    planTier: subscriptionPlanTier,
+    membershipExpiresAt: firstFreshMembershipExpiresAt(
+      subscriptionPlanTier,
+      subscriptionSnapshot?.membershipExpiresAt,
+      baseMembershipExpiresAt,
+      merged.membershipExpiresAt,
+      sameAccount ? state.snapshot?.currentAccount?.membershipExpiresAt : null,
+      sameAccount ? state.snapshot?.membershipExpiresAt : null,
+      local.membershipExpiresAt
+    ),
+    subscriptionWillRenew: subscriptionSnapshot?.subscriptionWillRenew ?? merged.subscriptionWillRenew ?? null,
+    subscriptionLastCheckedAt: subscriptionSnapshot?.subscriptionLastCheckedAt ||
+      state.snapshot?.currentAccount?.subscriptionLastCheckedAt ||
+      state.snapshot?.subscriptionLastCheckedAt ||
+      null
+  };
   const currentWeeklyResetAt = direct.usageWindows?.oneWeek?.resetAt || (
     sameAccount ? state.snapshot?.usageWindows?.oneWeek?.resetAt : null
   );
@@ -2125,7 +2197,9 @@ async function refreshUsageInternal(reason = 'manual') {
     ...local,
     profileIdentity,
     nickname: profileIdentity.nickname || local.nickname,
-    username: profileIdentity.username || local.username
+    username: profileIdentity.username || local.username,
+    subscriptionWillRenew: merged.subscriptionWillRenew ?? local.subscriptionWillRenew ?? null,
+    subscriptionLastCheckedAt: merged.subscriptionLastCheckedAt || local.subscriptionLastCheckedAt || null
   };
   const localTokenSummary = await collectLocalTokenSummary();
   const hasUsage =

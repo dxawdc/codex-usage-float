@@ -136,6 +136,7 @@ button {
     conic-gradient(var(--accent) 0 var(--angle, 0deg), var(--orb-track) 0 360deg),
     var(--orb-shell);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--inset-highlight) 80%, transparent);
+  transform-origin: center;
 }
 
 .ring-fill {
@@ -174,6 +175,14 @@ button {
   font-size: calc(var(--orb-size) * 0.22);
   line-height: 1;
   font-weight: 850;
+}
+
+.orb.is-updating .ring {
+  animation: orb-ring-pulse 620ms cubic-bezier(.2, .8, .25, 1);
+}
+
+.orb.is-updating .orb-core strong {
+  animation: orb-number-pop 520ms cubic-bezier(.2, .85, .28, 1);
 }
 
 .resize-grip {
@@ -515,6 +524,19 @@ svg {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.2;
+}
+
+.account-reset-card-inline {
+  flex: 0 0 auto;
+  color: var(--success-ink);
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 400;
+}
+
+.account-reset-card-inline.is-empty {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .account-active-badge {
@@ -1261,6 +1283,18 @@ dd {
   to {
     transform: rotate(360deg);
   }
+}
+
+@keyframes orb-ring-pulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+
+@keyframes orb-number-pop {
+  0% { transform: scale(.9); opacity: .65; }
+  48% { transform: scale(1.13); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
