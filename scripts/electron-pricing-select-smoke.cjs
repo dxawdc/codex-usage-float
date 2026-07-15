@@ -49,9 +49,11 @@ async function main() {
         const refreshTab = document.getElementById('settingsRefreshTab');
         const pricingTab = document.getElementById('settingsPricingTab');
         const displayTab = document.getElementById('settingsDisplayTab');
+        const orbTab = document.getElementById('settingsOrbTab');
         const refreshPanel = document.getElementById('refreshSettingsPanel');
         const pricingPanel = document.getElementById('pricingSettingsPanel');
         const displayPanel = document.getElementById('displaySettingsPanel');
+        const orbPanel = document.getElementById('orbSettingsPanel');
         const tabsLayout = getComputedStyle(document.querySelector('.settings-tabs')).flexDirection;
         const defaultInterval = document.getElementById('refreshIntervalField').value;
         document.querySelector('[data-local-range="lifetime"]').click();
@@ -64,6 +66,82 @@ async function main() {
         displayTab.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const displayTabVisible = !displayPanel.hidden && refreshPanel.hidden && pricingPanel.hidden;
+        orbTab.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const orbTabVisible = !orbPanel.hidden && refreshPanel.hidden && pricingPanel.hidden && displayPanel.hidden;
+        const orbStyleFields = [...document.querySelectorAll('input[name="orbStyle"]')];
+        const orbStyleIds = orbStyleFields.map((field) => field.value);
+        const setRemaining = (remaining) => {
+          const currentAccount = {
+            ...state.snapshot.currentAccount,
+            usageWindows: { fiveHour: { remainingPercent: remaining } }
+          };
+          state.snapshot = {
+            ...state.snapshot,
+            currentAccount,
+            accounts: (state.snapshot.accounts || []).map((account) => ({
+              ...account,
+              usageWindows: { fiveHour: { remainingPercent: remaining } }
+            }))
+          };
+          render();
+        };
+        const accentProbe = document.createElement('span');
+        document.body.appendChild(accentProbe);
+        const percentageColorChecks = [];
+        const indicatorSignatures = Object.fromEntries(orbStyleIds.map((style) => [style, []]));
+        for (const remaining of [69, 42, 18, 8]) {
+          setRemaining(remaining);
+          accentProbe.style.color = 'var(--accent)';
+          const expectedColor = getComputedStyle(accentProbe).color;
+          for (const style of orbStyleIds) {
+            applyOrbStyle(style);
+            const percentColor = getComputedStyle(document.getElementById('percentText')).color;
+            percentageColorChecks.push({ remaining, style, matches: percentColor === expectedColor });
+            const ring = document.querySelector('.ring');
+            const signature = style === 'pixel'
+              ? getComputedStyle(document.querySelector('.pixel-eyes i')).backgroundColor
+              : style === 'flip'
+                ? getComputedStyle(ring, '::before').backgroundImage
+                : getComputedStyle(ring).backgroundImage + getComputedStyle(ring, '::before').backgroundImage;
+            indicatorSignatures[style].push(signature);
+          }
+        }
+        accentProbe.remove();
+        const indicatorColorsFollowQuota = Object.fromEntries(
+          Object.entries(indicatorSignatures).map(([style, signatures]) => [style, new Set(signatures).size === 4])
+        );
+        const themeSurfaceChanges = {};
+        for (const style of ['aurora', 'pixel', 'flip']) {
+          applyOrbStyle(style);
+          applyTheme('dark');
+          const darkSurface = getComputedStyle(document.querySelector('.ring')).backgroundImage
+            + getComputedStyle(document.querySelector('.orb-core')).backgroundImage;
+          applyTheme('light');
+          const lightSurface = getComputedStyle(document.querySelector('.ring')).backgroundImage
+            + getComputedStyle(document.querySelector('.orb-core')).backgroundImage;
+          themeSurfaceChanges[style] = darkSurface !== lightSurface;
+        }
+        applyTheme('dark');
+        const auroraField = orbStyleFields.find((field) => field.value === 'aurora');
+        auroraField.checked = true;
+        auroraField.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const livePreviewStyle = document.getElementById('orb').dataset.orbStyle;
+        document.getElementById('closePricingButton').click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const unsavedStyleReverted = document.getElementById('orb').dataset.orbStyle;
+        document.getElementById('pricingSettingsButton').click();
+        orbTab.click();
+        const pixelField = orbStyleFields.find((field) => field.value === 'pixel');
+        pixelField.checked = true;
+        pixelField.dispatchEvent(new Event('change', { bubbles: true }));
+        document.getElementById('savePricingButton').click();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        document.getElementById('closePricingButton').click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const savedOrbStyle = document.getElementById('orb').dataset.orbStyle;
+        document.getElementById('pricingSettingsButton').click();
         refreshTab.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const dialogOpen = !document.getElementById('pricingDialog').hidden;
@@ -86,9 +164,17 @@ async function main() {
           colorScheme: selectStyle.colorScheme,
           optionBackground: optionStyle.backgroundColor,
           optionColor: optionStyle.color,
-          settingsTabs: Boolean(refreshTab && pricingTab && displayTab),
+          settingsTabs: Boolean(refreshTab && pricingTab && displayTab && orbTab),
           pricingTabVisible,
           displayTabVisible,
+          orbTabVisible,
+          orbStyleCount: orbStyleFields.length,
+          percentageColorChecks,
+          indicatorColorsFollowQuota,
+          themeSurfaceChanges,
+          livePreviewStyle,
+          unsavedStyleReverted,
+          savedOrbStyle,
           tabsLayout,
           defaultInterval,
           lifetimeCompactVisible,
@@ -114,6 +200,14 @@ async function main() {
     assert.equal(result.settingsTabs, true, 'settings center tabs are missing');
     assert.equal(result.pricingTabVisible, true, 'pricing tab did not switch');
     assert.equal(result.displayTabVisible, true, 'display mode tab did not switch');
+    assert.equal(result.orbTabVisible, true, 'orb style tab did not switch');
+    assert.equal(result.orbStyleCount, 4, 'orb style chooser must offer four styles');
+    assert.equal(result.percentageColorChecks.every((check) => check.matches), true, 'orb percentage color does not follow the quota color rule');
+    assert.deepEqual(result.indicatorColorsFollowQuota, { classic: true, aurora: true, pixel: true, flip: true }, 'orb indicators do not follow quota colors');
+    assert.deepEqual(result.themeSurfaceChanges, { aurora: true, pixel: true, flip: true }, 'custom orb surfaces do not react to theme changes');
+    assert.equal(result.livePreviewStyle, 'aurora', 'orb style did not preview immediately');
+    assert.equal(result.unsavedStyleReverted, 'classic', 'closing settings did not revert an unsaved orb preview');
+    assert.equal(result.savedOrbStyle, 'pixel', 'saved orb style did not remain active after closing settings');
     assert.equal(result.tabsLayout, 'column', 'settings tabs are not displayed on the left');
     assert.equal(result.defaultInterval, '30', 'refresh interval default is not 30 minutes');
     assert.equal(result.lifetimeCompactVisible, true, 'lifetime local summary is not visible');

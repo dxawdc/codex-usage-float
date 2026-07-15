@@ -61,7 +61,13 @@ let refreshTimer;
 let refreshInFlight = null;
 let authTransitionInProgress = false;
 let panelState = { open: false, side: 'right', orbX: 0, orbY: 0 };
-let config = { windowSize: 116, refreshIntervalMinutes: DEFAULT_REFRESH_INTERVAL_MINUTES, alwaysOnTop: true };
+const ORB_STYLES = new Set(['classic', 'aurora', 'pixel', 'flip']);
+let config = {
+  windowSize: 116,
+  refreshIntervalMinutes: DEFAULT_REFRESH_INTERVAL_MINUTES,
+  alwaysOnTop: true,
+  orbStyle: 'classic'
+};
 let state = createEmptyState();
 
 function configPath() {
@@ -86,10 +92,15 @@ function normalizeRefreshInterval(value, fallback = DEFAULT_REFRESH_INTERVAL_MIN
   return Math.round(Math.max(MIN_REFRESH_INTERVAL_MINUTES, Math.min(number, MAX_REFRESH_INTERVAL_MINUTES)));
 }
 
+function normalizeOrbStyle(value, fallback = 'classic') {
+  return typeof value === 'string' && ORB_STYLES.has(value) ? value : fallback;
+}
+
 function getSettingsSnapshot() {
   return {
     refreshIntervalMinutes: normalizeRefreshInterval(config.refreshIntervalMinutes),
-    alwaysOnTop: config.alwaysOnTop !== false
+    alwaysOnTop: config.alwaysOnTop !== false,
+    orbStyle: normalizeOrbStyle(config.orbStyle)
   };
 }
 
@@ -161,6 +172,7 @@ async function loadState() {
     config = { ...config, ...(await readJson(configPath(), config)) };
     config.refreshIntervalMinutes = normalizeRefreshInterval(config.refreshIntervalMinutes);
     config.alwaysOnTop = config.alwaysOnTop !== false;
+    config.orbStyle = normalizeOrbStyle(config.orbStyle);
   } catch (error) {
     warnings.push(`配置文件损坏：${error?.message || error}`);
   }
@@ -2417,6 +2429,13 @@ handleTrusted('settings:save', async (patch = {}) => {
     if (typeof patch.alwaysOnTop !== 'boolean') throw new Error('显示模式设置无效');
     config.alwaysOnTop = patch.alwaysOnTop;
     applyAlwaysOnTop();
+    changed = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'orbStyle')) {
+    if (typeof patch.orbStyle !== 'string' || !ORB_STYLES.has(patch.orbStyle)) {
+      throw new Error('悬浮球样式设置无效');
+    }
+    config.orbStyle = patch.orbStyle;
     changed = true;
   }
   if (changed) await writeJson(configPath(), config);

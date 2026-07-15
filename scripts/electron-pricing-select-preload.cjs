@@ -90,11 +90,15 @@ const refreshedSnapshot = Object.freeze({
 
 const layout = Object.freeze({ orbX: 8, orbY: 8, panelX: 148, side: 'right' });
 const noOp = () => Promise.resolve();
+let settings = { refreshIntervalMinutes: 30, alwaysOnTop: true, orbStyle: 'classic' };
 
 contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => Promise.resolve(snapshot),
-  getSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
-  saveSettings: () => Promise.resolve({ refreshIntervalMinutes: 30, alwaysOnTop: true }),
+  getSettings: () => Promise.resolve({ ...settings }),
+  saveSettings: (patch = {}) => {
+    settings = { ...settings, ...patch };
+    return Promise.resolve({ ...settings });
+  },
   refresh: () => Promise.resolve(refreshedSnapshot),
   openWeb: noOp,
   openAbout: noOp,

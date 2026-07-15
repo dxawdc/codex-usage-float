@@ -3,34 +3,37 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/release-v2.0.3-2f81f7" alt="release v2.0.3" /></a>
+    <a href="dist/CodexUsageFloat-2.1.0.exe"><img src="https://img.shields.io/badge/build-v2.1.0-2f81f7" alt="build v2.1.0" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.0.3-6b7280" alt="latest release v2.0.3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-39-47848f" alt="Electron 39" />
   </p>
 </div>
 
-当前正式版本为 `v2.0.3`，可从 GitHub Releases 下载 Windows 便携版 EXE。
+当前仓库版本为 `v2.1.0`，Windows 便携版 EXE 随仓库提供；GitHub Releases 当前最新已发布版本仍为 `v2.0.3`。
 
-一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持深色/浅色主题和自定义 Token 定价。
+一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持四种悬浮球样式、深色/浅色主题和自定义 Token 定价。
 
 ## 下载安装
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **推荐下载**：[CodexUsageFloat v2.0.3](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.3/CodexUsageFloat-2.0.3.exe)
+- **当前仓库构建**：[CodexUsageFloat v2.1.0](dist/CodexUsageFloat-2.1.0.exe)
+- **最新 GitHub Release**：[CodexUsageFloat v2.0.3](https://github.com/dxawdc/codex-usage-float/releases/download/v2.0.3/CodexUsageFloat-2.0.3.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
+| `v2.1.0` | `CodexUsageFloat-2.1.0.exe` | `AE68249927D262C9A389E14E6E1C4D0192C861A6DE16E8AC8FECCE1F654BD220` |
 | `v2.0.3` | `CodexUsageFloat-2.0.3.exe` | `D1F166298819A9B3FC40EF1E6D74A6492971D7E71D1F13AAD9EEFEDBC3CD9FA1` |
 
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.0.3.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.1.0.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -65,14 +68,14 @@ Get-FileHash .\CodexUsageFloat-2.0.3.exe -Algorithm SHA256
 
 ## 主要功能
 
-- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比；刷新后剩余百分比变化会以短动画过渡；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
+- **桌面悬浮球**：常驻桌面，显示当前账号会员等级和 5 小时窗口剩余百分比；提供“经典方环、极光玻璃、像素伙伴、机械翻牌”四种样式，均适配深色/浅色主题；刷新后剩余百分比变化会以短动画过渡；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
 - **多账号看板**：同时查看已导入账号的显示昵称、用户名、会员等级、会员到期时间、可用重置卡数量、5 小时额度和 1 周额度；账号超过 3 个时在列表内滚动。
 - **可控账号切换**：提供手动切换与自动切换；均只原子替换 `~/.codex/auth.json`，项目、任务、会话、插件和配置继续共用。自动切换会先关闭完整 Codex 桌面应用，保存当前最新认证，再切换并重新启动。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天、30 天、累计与单日峰值（含峰值日期）。数据优先来自账号接口，可能存在同步延迟；接口未提供的字段会显示 `--`。
 - **本地日志汇总**：按今日、7 天、30 天和累计切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数；按模型双列展示用量与费用，并使用独立模型费率估算总费用。
 - **重置卡列表**：账号卡片内汇总显示可用重置卡数量，详情区显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
-- **设置中心**：支持深色/浅色主题；在统一设置中心的“刷新时间 / 模型定价 / 显示模式”左侧 Tab 中调整自动刷新间隔（默认 30 分钟）、各模型输入/缓存输入/输出单价和窗口置顶状态。
+- **设置中心**：支持深色/浅色主题；在统一设置中心的“刷新时间 / 模型定价 / 显示模式 / 悬浮球”左侧 Tab 中调整自动刷新间隔（默认 30 分钟）、各模型输入/缓存输入/输出单价、窗口置顶状态和悬浮球样式。选择样式后立即预览，保存后固定使用。
 - **过程反馈**：导入已有账号时明确提示已更新；账号切换展示进行中、成功或失败状态。
 - **便携打包**：使用 `electron-builder` 生成 Windows portable EXE，无需安装程序。
 
@@ -182,7 +185,7 @@ npm run dev
 | `26% - 50%` | 黄色 |
 | `51% - 100%` | 绿色 |
 
-悬浮球优先跟随当前账号 5 小时窗口的剩余量。
+悬浮球优先跟随当前账号 5 小时窗口的剩余量。四种样式的百分比和外环、点阵、转轴等强调元素统一使用上述颜色规则。
 
 ## 本地文件与安全
 
@@ -192,11 +195,12 @@ npm run dev
 ~/.codex/auth.json
 %APPDATA%/codex-usage-float/accounts.json
 %APPDATA%/codex-usage-float/usage-state.json
+%APPDATA%/codex-usage-float/config.json
 %APPDATA%/codex-usage-float/Local Storage/
 ```
 
 - `accounts.json` 保存已导入账号的认证快照，以便后续切换；该文件包含敏感登录信息，请勿上传、分享或纳入备份公开范围。
-- 主题与自定义 Token 单价保存在 Electron 的本地存储目录中，只在当前 Windows 用户下生效，不会上传到远端。
+- 自动刷新间隔、窗口置顶状态和悬浮球样式保存在 `config.json`；主题与自定义 Token 单价保存在 Electron 的本地存储目录中。它们都只在当前 Windows 用户下生效，不会上传到远端。
 - 账号快照使用 Electron `safeStorage` 通过当前 Windows 用户的系统加密能力保护；密文仍不可分享，复制到其他 Windows 用户或设备后通常无法解密。请只在可信个人设备上使用。
 - 应用不会把令牌写入调试日志、README、截图或 Git 仓库。
 - 自动切换会在完整 Codex 桌面端退出后保存当前最新 `auth.json`，再通过临时文件原子替换目标认证，降低令牌轮换丢失和写入中断风险。
@@ -208,7 +212,7 @@ npm run dev
 - 双击悬浮球：立即刷新用量。
 - 鼠标滚轮：调整悬浮球大小。
 - 刷新按钮：刷新已保存账号、当前账号重置卡和本地日志汇总。
-- 设置中心：在“刷新时间”Tab 调整账号自动刷新间隔（5–180 分钟，默认 30 分钟）；在“模型定价”Tab 调整模型费用估算单价；在“显示模式”Tab 开关窗口置顶。
+- 设置中心：在“刷新时间”Tab 调整账号自动刷新间隔（5–180 分钟，默认 30 分钟）；在“模型定价”Tab 调整模型费用估算单价；在“显示模式”Tab 开关窗口置顶；在“悬浮球”Tab 选择四种外观之一，选择后实时预览，点击“保存悬浮球”后持久化。
 - 添加账号：关闭 Codex、保存当前认证并清除活动 `auth.json`，重新打开后登录新账号。
 - 导入当前账号：读取当前 `auth.json` 并保存或更新账号快照。
 - 手动切换：要求先完全退出 Codex，再保存当前最新认证并替换目标 `auth.json`，完成后由用户打开 Codex。
@@ -230,7 +234,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-2.0.3.exe
+CodexUsageFloat-2.1.0.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
@@ -272,6 +276,14 @@ AGENTS.md                 项目维护与交付规则
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 版本更新记录
+
+### v2.1.0 - 2026-07-15
+
+- 设置中心新增“悬浮球”Tab，可在“经典方环、极光玻璃、像素伙伴、机械翻牌”四种样式间实时预览；保存后持久化，关闭未保存设置会恢复原样式。
+- 三种新增样式完整适配深色/浅色主题，浅色模式改用更轻的玻璃、雾白和浅灰材质，降低悬浮球底色区域的视觉重量。
+- 百分比文字与外环、进度弧、点阵、翻牌转轴等强调元素统一跟随 5 小时剩余额度颜色规则，在绿、黄、橙、红四档间同步变化。
+- 补充悬浮球配置、实时预览、保存/撤销、主题适配、颜色联动、紧凑尺寸和渲染层控制台错误检查。
+- 构建 Windows portable EXE `CodexUsageFloat-2.1.0.exe`，SHA-256 为 `AE68249927D262C9A389E14E6E1C4D0192C861A6DE16E8AC8FECCE1F654BD220`。
 
 ### v2.0.3 - 2026-07-14
 

@@ -17,6 +17,6 @@ test('pricing select declares readable native option colors in both themes', () 
   assert.match(styles, /\.price-field select option:checked\s*\{[\s\S]*?var\(--select-popup-selected-bg\)[\s\S]*?color:\s*var\(--select-popup-selected-ink\);/);
 });
 
-test('release version is 2.0.3', () => {
-  assert.equal(manifest.version, '2.0.3');
+test('release version is 2.1.0', () => {
+  assert.equal(manifest.version, '2.1.0');
 });

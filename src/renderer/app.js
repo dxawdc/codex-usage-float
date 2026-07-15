@@ -10,8 +10,9 @@ const state = {
   theme: localStorage.getItem('codexUsageTheme') || 'dark',
   pricing: null,
   pricingModel: 'gpt-5.5',
-  settings: { refreshIntervalMinutes: 30, alwaysOnTop: true },
+  settings: { refreshIntervalMinutes: 30, alwaysOnTop: true, orbStyle: 'classic' },
   settingsTab: 'refresh',
+  orbStylePreview: 'classic',
   panelHeightTimer: null,
   orbRemaining: null,
   orbPercentAnimationFrame: null,
@@ -67,9 +68,12 @@ const els = {
   settingsRefreshTab: document.getElementById('settingsRefreshTab'),
   settingsPricingTab: document.getElementById('settingsPricingTab'),
   settingsDisplayTab: document.getElementById('settingsDisplayTab'),
+  settingsOrbTab: document.getElementById('settingsOrbTab'),
   refreshSettingsPanel: document.getElementById('refreshSettingsPanel'),
   pricingSettingsPanel: document.getElementById('pricingSettingsPanel'),
   displaySettingsPanel: document.getElementById('displaySettingsPanel'),
+  orbSettingsPanel: document.getElementById('orbSettingsPanel'),
+  orbStyleFields: [...document.querySelectorAll('input[name="orbStyle"]')],
   refreshIntervalField: document.getElementById('refreshIntervalField'),
   alwaysOnTopField: document.getElementById('alwaysOnTopField'),
   pricingModelSelect: document.getElementById('pricingModelSelect'),
@@ -95,6 +99,7 @@ const DEFAULT_MODEL_PRICING_PER_MILLION = Object.freeze({
 });
 const DEFAULT_GPT_5_5_PRICE_PER_MILLION = DEFAULT_MODEL_PRICING_PER_MILLION['gpt-5.5'];
 const PRICING_STORAGE_KEY = 'codexUsagePricing';
+const ORB_STYLE_IDS = new Set(['classic', 'aurora', 'pixel', 'flip']);
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -122,6 +127,21 @@ function formatPercent(value) {
   return `${clamp(number, 0, 100).toFixed(number < 10 ? 1 : 0)}%`;
 }
 
+function normalizeOrbStyle(value) {
+  return typeof value === 'string' && ORB_STYLE_IDS.has(value) ? value : 'classic';
+}
+
+function applyOrbStyle(value) {
+  const next = normalizeOrbStyle(value);
+  state.orbStylePreview = next;
+  els.orb.dataset.orbStyle = next;
+  for (const field of els.orbStyleFields) field.checked = field.value === next;
+}
+
+function setOrbPercentText(value) {
+  els.percentText.textContent = formatPercent(value);
+}
+
 function updateOrbPercent(nextRemaining) {
   const previousRemaining = state.orbRemaining;
   const canAnimate = Number.isFinite(previousRemaining)
@@ -130,7 +150,7 @@ function updateOrbPercent(nextRemaining) {
   state.orbRemaining = nextRemaining;
 
   if (!canAnimate) {
-    els.percentText.textContent = formatPercent(nextRemaining);
+    setOrbPercentText(nextRemaining);
     return;
   }
 
@@ -147,12 +167,12 @@ function updateOrbPercent(nextRemaining) {
     if (state.orbPercentAnimationFrame) cancelAnimationFrame(state.orbPercentAnimationFrame);
     state.orbPercentAnimationFrame = null;
     clearTimeout(state.orbPercentAnimationTimer);
-    els.percentText.textContent = formatPercent(nextRemaining);
+    setOrbPercentText(nextRemaining);
   };
   const tick = (now) => {
     const progress = Math.min(1, (now - startedAt) / duration);
     const eased = 1 - Math.pow(1 - progress, 3);
-    els.percentText.textContent = formatPercent(previousRemaining + (nextRemaining - previousRemaining) * eased);
+    setOrbPercentText(previousRemaining + (nextRemaining - previousRemaining) * eased);
     if (progress < 1) {
       state.orbPercentAnimationFrame = requestAnimationFrame(tick);
       return;
@@ -587,10 +607,11 @@ function render() {
 
   els.root.style.setProperty('--accent', accent);
   els.root.style.setProperty('--orb-size', `${state.size}px`);
+  els.orb.style.setProperty('--angle', `${remainingSafe * 3.6}deg`);
   els.ringFill.style.setProperty('--angle', `${remainingSafe * 3.6}deg`);
+  els.orb.dataset.quota = remainingSafe <= 10 ? 'critical' : remainingSafe <= 25 ? 'low' : remainingSafe <= 50 ? 'focused' : 'calm';
   els.tierText.textContent = formatTier(currentAccount?.planTier || data.planTier);
   updateOrbPercent(remaining);
-  els.percentText.style.color = accent;
   els.orbCaption.textContent = '5h 剩余';
   els.lastSyncedText.textContent = data.lastSyncedAt
     ? `刷新 ${formatMinute(data.lastSyncedAt)} · ${sourceStatus}`
@@ -630,6 +651,7 @@ async function load() {
     window.codexUsage.getSnapshot(),
     window.codexUsage.getSettings()
   ]);
+  applyOrbStyle(state.settings.orbStyle);
   render();
 }
 
@@ -733,34 +755,50 @@ function readPricingFields() {
 }
 
 function setSettingsTab(tab) {
-  state.settingsTab = ['pricing', 'display'].includes(tab) ? tab : 'refresh';
+  state.settingsTab = ['pricing', 'display', 'orb'].includes(tab) ? tab : 'refresh';
   const isPricing = state.settingsTab === 'pricing';
   const isDisplay = state.settingsTab === 'display';
-  els.settingsRefreshTab.classList.toggle('is-active', !isPricing && !isDisplay);
+  const isOrb = state.settingsTab === 'orb';
+  const isRefresh = !isPricing && !isDisplay && !isOrb;
+  els.settingsRefreshTab.classList.toggle('is-active', isRefresh);
   els.settingsPricingTab.classList.toggle('is-active', isPricing);
   els.settingsDisplayTab.classList.toggle('is-active', isDisplay);
-  els.settingsRefreshTab.setAttribute('aria-selected', String(!isPricing && !isDisplay));
+  els.settingsOrbTab.classList.toggle('is-active', isOrb);
+  els.settingsRefreshTab.setAttribute('aria-selected', String(isRefresh));
   els.settingsPricingTab.setAttribute('aria-selected', String(isPricing));
   els.settingsDisplayTab.setAttribute('aria-selected', String(isDisplay));
-  els.refreshSettingsPanel.hidden = isPricing || isDisplay;
+  els.settingsOrbTab.setAttribute('aria-selected', String(isOrb));
+  els.refreshSettingsPanel.hidden = !isRefresh;
   els.pricingSettingsPanel.hidden = !isPricing;
   els.displaySettingsPanel.hidden = !isDisplay;
-  els.savePricingButton.textContent = isPricing ? '保存定价' : isDisplay ? '保存显示模式' : '保存刷新时间';
+  els.orbSettingsPanel.hidden = !isOrb;
+  els.savePricingButton.textContent = isPricing
+    ? '保存定价'
+    : isDisplay
+      ? '保存显示模式'
+      : isOrb
+        ? '保存悬浮球'
+        : '保存刷新时间';
   els.resetPricingButton.hidden = !isPricing;
-  if (!isPricing && !isDisplay) {
+  if (isRefresh) {
     els.refreshIntervalField.value = String(state.settings.refreshIntervalMinutes || 30);
     requestAnimationFrame(() => els.refreshIntervalField.focus());
   } else if (isPricing) {
     setPricingModelOptions();
     setPricingFields();
     requestAnimationFrame(() => els.pricingModelSelect.focus());
-  } else {
+  } else if (isDisplay) {
     els.alwaysOnTopField.checked = state.settings.alwaysOnTop !== false;
     requestAnimationFrame(() => els.alwaysOnTopField.focus());
+  } else {
+    applyOrbStyle(state.orbStylePreview);
+    requestAnimationFrame(() => els.orbStyleFields.find((field) => field.checked)?.focus());
   }
+  schedulePanelHeightResize();
 }
 
 function openPricingDialog() {
+  applyOrbStyle(state.settings.orbStyle);
   setSettingsTab('refresh');
   setPricingModelOptions();
   setPricingFields();
@@ -772,6 +810,7 @@ function openPricingDialog() {
 
 function closePricingDialog() {
   setPricingStatus('');
+  applyOrbStyle(state.settings.orbStyle);
   els.pricingDialog.hidden = true;
   schedulePanelHeightResize();
 }
@@ -916,7 +955,15 @@ els.pricingSettingsButton.addEventListener('click', openPricingDialog);
 els.settingsRefreshTab.addEventListener('click', () => setSettingsTab('refresh'));
 els.settingsPricingTab.addEventListener('click', () => setSettingsTab('pricing'));
 els.settingsDisplayTab.addEventListener('click', () => setSettingsTab('display'));
+els.settingsOrbTab.addEventListener('click', () => setSettingsTab('orb'));
 els.closePricingButton.addEventListener('click', closePricingDialog);
+for (const field of els.orbStyleFields) {
+  field.addEventListener('change', () => {
+    if (!field.checked) return;
+    applyOrbStyle(field.value);
+    setPricingStatus('正在预览，点击“保存悬浮球”后固定使用。');
+  });
+}
 els.pricingModelSelect.addEventListener('change', () => {
   state.pricingModel = normalizeModelKey(els.pricingModelSelect.value);
   setPricingFields();
@@ -952,6 +999,17 @@ els.savePricingButton.addEventListener('click', () => {
         setPricingStatus(settings.alwaysOnTop ? '已开启窗口置顶。' : '已取消窗口置顶。', 'success');
       })
       .catch((error) => setPricingStatus(String(error?.message || error || '显示模式保存失败'), 'error'));
+    return;
+  }
+  if (state.settingsTab === 'orb') {
+    const orbStyle = normalizeOrbStyle(state.orbStylePreview);
+    window.codexUsage.saveSettings({ orbStyle })
+      .then((settings) => {
+        state.settings = settings;
+        applyOrbStyle(settings.orbStyle);
+        setPricingStatus('悬浮球样式已保存。', 'success');
+      })
+      .catch((error) => setPricingStatus(String(error?.message || error || '悬浮球样式保存失败'), 'error'));
     return;
   }
   try {

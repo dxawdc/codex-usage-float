@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-float",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "description": "Codex 用量桌面悬浮窗",
   "main": "src/main.js",
   "scripts": {
@@ -33,6 +33,7 @@
     "directories": {
       "output": "dist"
     },
+    "electronDist": "node_modules/electron/dist",
     "files": [
       "src/**/*",
       "build/CodexUsage_512.ico",

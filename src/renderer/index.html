@@ -14,6 +14,7 @@
           <div id="ringFill" class="ring-fill"></div>
           <div class="orb-core">
             <span id="tierText" class="tier">--</span>
+            <span class="pixel-eyes" aria-hidden="true"><i></i><i></i></span>
             <strong id="percentText">--%</strong>
             <span id="orbCaption" class="caption">5h 剩余</span>
           </div>
@@ -153,6 +154,7 @@
                 <button id="settingsRefreshTab" class="settings-tab is-active" role="tab" aria-selected="true">刷新时间</button>
                 <button id="settingsPricingTab" class="settings-tab" role="tab" aria-selected="false">模型定价</button>
                 <button id="settingsDisplayTab" class="settings-tab" role="tab" aria-selected="false">显示模式</button>
+                <button id="settingsOrbTab" class="settings-tab" role="tab" aria-selected="false">悬浮球</button>
               </div>
               <div class="settings-content">
             <div id="refreshSettingsPanel" class="settings-panel">
@@ -193,6 +195,32 @@
                 <span>窗口置顶</span>
               </label>
               <p class="hint">关闭后，悬浮窗会遵循普通窗口层级。</p>
+            </div>
+            <div id="orbSettingsPanel" class="settings-panel" hidden>
+              <p>选择悬浮球外观。选择后立即预览，保存后固定使用。</p>
+              <div class="orb-style-options" role="radiogroup" aria-label="悬浮球样式">
+                <label class="orb-style-option">
+                  <input type="radio" name="orbStyle" value="classic" checked />
+                  <span class="orb-style-sample" data-preview-style="classic" aria-hidden="true"></span>
+                  <span><strong>经典方环</strong><small>现有样式</small></span>
+                </label>
+                <label class="orb-style-option">
+                  <input type="radio" name="orbStyle" value="aurora" />
+                  <span class="orb-style-sample" data-preview-style="aurora" aria-hidden="true"></span>
+                  <span><strong>极光玻璃</strong><small>霓虹玻璃环</small></span>
+                </label>
+                <label class="orb-style-option">
+                  <input type="radio" name="orbStyle" value="pixel" />
+                  <span class="orb-style-sample" data-preview-style="pixel" aria-hidden="true"></span>
+                  <span><strong>像素伙伴</strong><small>点阵表情屏</small></span>
+                </label>
+                <label class="orb-style-option">
+                  <input type="radio" name="orbStyle" value="flip" />
+                  <span class="orb-style-sample" data-preview-style="flip" aria-hidden="true"></span>
+                  <span><strong>机械翻牌</strong><small>工业数字牌</small></span>
+                </label>
+              </div>
+              <p class="hint">关闭设置中心会撤销尚未保存的预览。</p>
             </div>
               </div>
             </div>
