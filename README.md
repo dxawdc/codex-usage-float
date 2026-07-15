@@ -3,7 +3,6 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="dist/CodexUsageFloat-2.1.0.exe"><img src="https://img.shields.io/badge/build-v2.1.0-2f81f7" alt="build v2.1.0" /></a>
     <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.1.0-6b7280" alt="latest release v2.1.0" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
@@ -11,7 +10,7 @@
   </p>
 </div>
 
-当前仓库版本与 GitHub Releases 最新已发布版本均为 `v2.1.0`，Windows 便携版 EXE 随仓库和 Release 提供。
+当前 GitHub Releases 最新已发布版本为 `v2.1.0`，Windows 便携版 EXE 通过 Release 提供。
 
 一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，同时展示多个账号的 5 小时与 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持四种悬浮球样式、深色/浅色主题和自定义 Token 定价。
 
@@ -19,7 +18,6 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **当前仓库构建**：[CodexUsageFloat v2.1.0](dist/CodexUsageFloat-2.1.0.exe)
 - **最新 GitHub Release**：[CodexUsageFloat v2.1.0](https://github.com/dxawdc/codex-usage-float/releases/download/v2.1.0/CodexUsageFloat-2.1.0.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
