@@ -20,6 +20,14 @@ const snapshot = Object.freeze({
     planTier: 'Plus',
     usageWindows: { fiveHour: { remainingPercent: 82 } },
     resetCards: [{ label: 'Codex 重置卡', count: 3 }]
+  }, {
+    id: 'smoke-empty-account',
+    nickname: 'Empty',
+    username: 'empty@example.com',
+    isCurrent: false,
+    planTier: 'Free',
+    usageWindows: { fiveHour: { remainingPercent: 45 } },
+    resetCards: []
   }],
   resetCards: [],
   localTokenSummary: {

@@ -528,15 +528,14 @@ svg {
 
 .account-reset-card-inline {
   flex: 0 0 auto;
-  color: var(--success-ink);
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.2;
   font-weight: 400;
 }
 
-.account-reset-card-inline.is-empty {
-  color: var(--muted);
-  font-weight: 400;
+.account-reset-card-inline.has-reset-cards {
+  color: var(--success-ink);
 }
 
 .account-active-badge {

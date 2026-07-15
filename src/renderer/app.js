@@ -433,8 +433,8 @@ function renderAccounts(accounts = []) {
     planNode.textContent = `${formatTier(account.planTier)} · 到期 ${formatMinute(account.membershipExpiresAt)}`;
 
     const resetCardNode = document.createElement('span');
-    resetCardNode.className = `account-reset-card-inline${resetCardCount ? '' : ' is-empty'}`;
-    resetCardNode.textContent = `可用重置卡 ${formatNumber(resetCardCount)} 张`;
+    resetCardNode.className = `account-reset-card-inline${resetCardCount > 0 ? ' has-reset-cards' : ''}`;
+    resetCardNode.textContent = `reset*${formatNumber(resetCardCount)}`;
 
     nameLine.append(nicknameNode, usernameNode, planNode, resetCardNode);
     if (account.isCurrent) {

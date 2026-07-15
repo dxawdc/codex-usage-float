@@ -24,9 +24,21 @@ async function main() {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const select = document.getElementById('pricingModelSelect');
         const option = select.options[0];
-        const resetCardInline = document.querySelector('.account-reset-card-inline');
+        const resetCardInlines = [...document.querySelectorAll('.account-reset-card-inline')];
+        const resetCardInline = resetCardInlines[0];
+        const emptyResetCardInline = resetCardInlines[1];
         const resetCardText = resetCardInline?.textContent;
+        const emptyResetCardText = emptyResetCardInline?.textContent;
         const resetCardWeight = getComputedStyle(resetCardInline).fontWeight;
+        const resetCardColor = getComputedStyle(resetCardInline).color;
+        const emptyResetCardColor = getComputedStyle(emptyResetCardInline).color;
+        const colorProbe = document.createElement('span');
+        document.body.appendChild(colorProbe);
+        colorProbe.style.color = 'var(--success-ink)';
+        const successColor = getComputedStyle(colorProbe).color;
+        colorProbe.style.color = 'var(--muted)';
+        const mutedColor = getComputedStyle(colorProbe).color;
+        colorProbe.remove();
         document.getElementById('refreshButton').click();
         await new Promise((resolve) => setTimeout(resolve, 100));
         const orbAnimationTriggered = document.getElementById('orb').classList.contains('is-updating');
@@ -62,7 +74,12 @@ async function main() {
           dialogOpen,
           optionCount: select.options.length,
           resetCardText,
+          emptyResetCardText,
           resetCardWeight,
+          resetCardColor,
+          emptyResetCardColor,
+          successColor,
+          mutedColor,
           orbAnimationTriggered,
           refreshedPercent,
           theme: document.documentElement.dataset.theme,
@@ -83,8 +100,11 @@ async function main() {
 
     assert.equal(result.dialogOpen, true, 'pricing dialog did not open');
     assert.ok(result.optionCount >= 1, 'pricing select has no options');
-    assert.equal(result.resetCardText, '可用重置卡 3 张', 'account card does not show its available reset-card count');
+    assert.equal(result.resetCardText, 'reset*3', 'account card does not show its available reset-card count');
+    assert.equal(result.emptyResetCardText, 'reset*0', 'empty account card does not show zero reset-card count');
     assert.equal(result.resetCardWeight, '400', 'account reset-card count should not be bold');
+    assert.equal(result.resetCardColor, result.successColor, 'positive reset-card count should use the success color');
+    assert.equal(result.emptyResetCardColor, result.mutedColor, 'zero reset-card count should use the regular color');
     assert.equal(result.orbAnimationTriggered, true, 'orb did not animate when the remaining percentage changed');
     assert.equal(result.refreshedPercent, '57%', 'orb did not finish at the refreshed percentage');
     assert.equal(result.theme, 'dark', 'smoke window did not start in dark theme');
