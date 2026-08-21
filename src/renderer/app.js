@@ -497,7 +497,19 @@ function renderAccounts(accounts = []) {
 
     const quotas = document.createElement('div');
     quotas.className = 'account-quotas';
-    quotas.append(createMiniQuota('5h', fiveHour), createMiniQuota('1周', oneWeek));
+    const quotaWindows = [
+      ['5h', fiveHour],
+      ['1周', oneWeek]
+    ].filter(([, window]) => Boolean(window));
+    quotas.classList.toggle('single-window', quotaWindows.length === 1);
+    for (const [label, window] of quotaWindows) quotas.append(createMiniQuota(label, window));
+    if (!quotaWindows.length) {
+      const emptyQuota = document.createElement('div');
+      emptyQuota.className = 'mini-quota empty';
+      emptyQuota.textContent = '额度数据待刷新';
+      quotas.classList.add('single-window');
+      quotas.appendChild(emptyQuota);
+    }
 
     const tokenLine = document.createElement('p');
     tokenLine.className = 'account-token-line';
@@ -595,12 +607,14 @@ function render() {
   const data = state.snapshot || {};
   const currentAccount = data.currentAccount || data.accounts?.find((account) => account.isCurrent) || null;
   const fiveHour = usageWindow(currentAccount, 'fiveHour') || data.usageWindows?.fiveHour;
+  const oneWeek = usageWindow(currentAccount, 'oneWeek') || data.usageWindows?.oneWeek;
+  const activeQuota = fiveHour || oneWeek;
   if (!state.sizeInitialized && Number.isFinite(Number(data.windowSize))) {
     state.size = Number(data.windowSize);
     state.sizeInitialized = true;
   }
 
-  const remaining = Number(fiveHour?.remainingPercent);
+  const remaining = Number(activeQuota?.remainingPercent);
   const remainingSafe = Number.isFinite(remaining) ? clamp(remaining, 0, 100) : 0;
   const accent = accentForRemaining(remaining);
   const sourceStatus = data.sourceStatus === '已同步 Codex 用量' ? '已同步' : data.sourceStatus || '等待同步';
@@ -612,7 +626,7 @@ function render() {
   els.orb.dataset.quota = remainingSafe <= 10 ? 'critical' : remainingSafe <= 25 ? 'low' : remainingSafe <= 50 ? 'focused' : 'calm';
   els.tierText.textContent = formatTier(currentAccount?.planTier || data.planTier);
   updateOrbPercent(remaining);
-  els.orbCaption.textContent = '5h 剩余';
+  els.orbCaption.textContent = fiveHour ? '5h 剩余' : oneWeek ? '1周剩余' : '额度剩余';
   els.lastSyncedText.textContent = data.lastSyncedAt
     ? `刷新 ${formatMinute(data.lastSyncedAt)} · ${sourceStatus}`
     : sourceStatus;

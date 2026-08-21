@@ -44,6 +44,9 @@ async function main() {
         const orbAnimationTriggered = document.getElementById('orb').classList.contains('is-updating');
         await new Promise((resolve) => setTimeout(resolve, 620));
         const refreshedPercent = document.getElementById('percentText').textContent;
+        const refreshedCaption = document.getElementById('orbCaption').textContent;
+        const refreshedQuotaLabels = [...document.querySelectorAll('.account-quotas .mini-quota-head > span:first-child')]
+          .map((node) => node.textContent);
         const selectStyle = getComputedStyle(select);
         const optionStyle = getComputedStyle(option);
         const refreshTab = document.getElementById('settingsRefreshTab');
@@ -160,6 +163,8 @@ async function main() {
           mutedColor,
           orbAnimationTriggered,
           refreshedPercent,
+          refreshedCaption,
+          refreshedQuotaLabels,
           theme: document.documentElement.dataset.theme,
           colorScheme: selectStyle.colorScheme,
           optionBackground: optionStyle.backgroundColor,
@@ -193,6 +198,9 @@ async function main() {
     assert.equal(result.emptyResetCardColor, result.mutedColor, 'zero reset-card count should use the regular color');
     assert.equal(result.orbAnimationTriggered, true, 'orb did not animate when the remaining percentage changed');
     assert.equal(result.refreshedPercent, '57%', 'orb did not finish at the refreshed percentage');
+    assert.equal(result.refreshedCaption, '1周剩余', 'orb did not switch to the available weekly quota');
+    assert.equal(result.refreshedQuotaLabels.includes('5h'), false, 'account cards still render a missing 5-hour quota');
+    assert.equal(result.refreshedQuotaLabels.every((label) => label === '1周'), true, 'account cards did not render only the weekly quota');
     assert.equal(result.theme, 'dark', 'smoke window did not start in dark theme');
     assert.equal(result.colorScheme, 'dark', 'pricing select does not declare a dark native control scheme');
     assert.notEqual(result.optionBackground, 'rgba(0, 0, 0, 0)', 'pricing option background is transparent');

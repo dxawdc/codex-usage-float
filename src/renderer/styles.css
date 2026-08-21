@@ -955,6 +955,10 @@ svg {
   gap: 8px;
 }
 
+.account-quotas.single-window {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .mini-quota {
   min-width: 0;
   padding: 8px;

@@ -80,11 +80,11 @@ const refreshedSnapshot = Object.freeze({
   ...snapshot,
   currentAccount: {
     ...snapshot.currentAccount,
-    usageWindows: { fiveHour: { remainingPercent: 57 } }
+    usageWindows: { oneWeek: { remainingPercent: 57 } }
   },
   accounts: snapshot.accounts.map((account) => ({
     ...account,
-    usageWindows: { fiveHour: { remainingPercent: 57 } }
+    usageWindows: { oneWeek: { remainingPercent: 57 } }
   }))
 });
 

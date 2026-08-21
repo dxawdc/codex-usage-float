@@ -10,6 +10,7 @@ const { createCodexProcessManager } = require('./lib/codex-process-manager');
 const { mergePatch, mergeSparse } = require('./lib/object-utils');
 const { AuthRequestError, createJsonFetcher, throwForAuthFailure } = require('./lib/usage-http');
 const { createTokenLogCache } = require('./lib/token-log-cache');
+const { mapAggregateUsageWindows } = require('./lib/usage-windows');
 const {
   firstFreshMembershipExpiresAt,
   maybeFetchSubscriptionSnapshot
@@ -661,55 +662,6 @@ async function resolveUsageUrls() {
   return [...new Set(candidates)];
 }
 
-function unixSecondsToIso(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return null;
-  const date = new Date(number * 1000);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function normalizeUsageWindow(value) {
-  if (!value || typeof value !== 'object') return null;
-  const usedPercent = numberOrNull(value.used_percent);
-  const windowSeconds = numberOrNull(value.limit_window_seconds);
-  if (!Number.isFinite(usedPercent) || !Number.isFinite(windowSeconds)) return null;
-  return {
-    usedPercent: clampPercent(usedPercent),
-    remainingPercent: clampPercent(100 - usedPercent),
-    windowSeconds,
-    resetAt: unixSecondsToIso(value.reset_at)
-  };
-}
-
-function clampPercent(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return null;
-  return Math.max(0, Math.min(100, number));
-}
-
-function collectUsageWindows(payload) {
-  const windows = [];
-  const pushRateLimit = (rateLimit) => {
-    if (!rateLimit || typeof rateLimit !== 'object') return;
-    for (const key of ['primary_window', 'secondary_window']) {
-      const window = normalizeUsageWindow(rateLimit[key]);
-      if (window) windows.push(window);
-    }
-  };
-
-  pushRateLimit(payload?.rate_limit);
-  for (const item of payload?.additional_rate_limits || []) {
-    pushRateLimit(item?.rate_limit);
-  }
-  return windows;
-}
-
-function pickNearestUsageWindow(windows, targetSeconds) {
-  return windows
-    .filter((window) => isFiniteNumberValue(window.windowSeconds))
-    .sort((a, b) => Math.abs(a.windowSeconds - targetSeconds) - Math.abs(b.windowSeconds - targetSeconds))[0] || null;
-}
-
 function mapResetCredits(payload) {
   const resetCredits = payload?.rate_limit_reset_credits;
   const count = numberOrNull(resetCredits?.available_count);
@@ -769,9 +721,7 @@ function inferResetCardExpiry(cards = [], previousCards = []) {
 }
 
 function mapOfficialUsagePayload(payload, sourceUrl) {
-  const windows = collectUsageWindows(payload);
-  const fiveHour = pickNearestUsageWindow(windows, 5 * 60 * 60);
-  const oneWeek = pickNearestUsageWindow(windows, 7 * 24 * 60 * 60);
+  const { fiveHour, oneWeek } = mapAggregateUsageWindows(payload);
   const primary = fiveHour || oneWeek;
 
   return {
@@ -2273,7 +2223,7 @@ async function refreshUsageInternal(reason = 'manual') {
       sourceStatus: statusText,
       obsoleteStatus: null
     }
-  }, ['tokenUsage', 'accounts', 'currentAccount', 'localTokenSummary', 'resetCards']);
+  }, ['usageWindows', 'tokenUsage', 'accounts', 'currentAccount', 'localTokenSummary', 'resetCards']);
   return getViewSnapshot();
 }
 

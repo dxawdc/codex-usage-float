@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-float",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Codex 用量桌面悬浮窗",
   "main": "src/main.js",
   "scripts": {
@@ -24,7 +24,7 @@
   "author": "可以叫我才哥",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^39.8.10",
+    "electron": "^43.4.1",
     "electron-builder": "^26.15.0"
   },
   "build": {
