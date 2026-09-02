@@ -71,7 +71,7 @@ Get-FileHash .\CodexUsageFloat-2.2.0.exe -Algorithm SHA256
 
 <p align="center">
   <a href="skills/codex-usage-history-poster/assets/example-codex-usage-poster.png">
-    <img src="skills/codex-usage-history-poster/assets/example-codex-usage-poster.png" alt="Codex 历史用量图谱效果示例" width="560" />
+    <img src="skills/codex-usage-history-poster/assets/example-codex-usage-poster.png" alt="Codex 历史用量图谱效果示例" width="260" />
   </a>
 </p>
 
