@@ -1,0 +1,5 @@
+interface:
+  display_name: "Codex 历史用量海报"
+  short_description: "分析本地 Codex 日志并生成含分模型数据与日期热力图的竖版海报"
+  brand_color: "#0B55C9"
+  default_prompt: "使用 $codex-usage-history-poster 分析我的本地 Codex 历史用量，并生成包含分模型数据和日期热力图的竖版海报。"

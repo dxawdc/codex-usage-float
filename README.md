@@ -65,6 +65,30 @@ Get-FileHash .\CodexUsageFloat-2.2.0.exe -Algorithm SHA256
 
 截图使用示例账号名称，未包含真实登录凭据。
 
+## Codex 历史用量海报 Skill
+
+仓库附带可分享的 [`codex-usage-history-poster`](skills/codex-usage-history-poster/) Skill。它会读取使用者自己的 Codex 本地 JSONL 日志，统一按北京时间聚合，并生成包含每日分模型趋势、日期热力图、模型 Token/占比/成本、推理强度和工作方式摘要的竖版信息图。
+
+<p align="center">
+  <a href="skills/codex-usage-history-poster/assets/example-codex-usage-poster.png">
+    <img src="skills/codex-usage-history-poster/assets/example-codex-usage-poster.png" alt="Codex 历史用量图谱效果示例" width="560" />
+  </a>
+</p>
+
+复制 Skill 目录到个人 Codex skills 目录：
+
+```powershell
+Copy-Item -Recurse .\skills\codex-usage-history-poster "$env:USERPROFILE\.codex\skills\"
+```
+
+随后在 Codex 中调用：
+
+```text
+$codex-usage-history-poster 分析我的本地 Codex 历史用量，并生成包含分模型数据和日期热力图的竖版海报。
+```
+
+默认分析最近 100 个自然日。生成结果只包含聚合用量和显式 Skill/插件标记，不导出消息正文、工具参数、认证数据或真实会话 ID。成本为官方基础文本费率的 API 等价估算，并非实际账单。
+
 ## 主要功能
 
 - **桌面悬浮球**：常驻桌面，显示当前账号会员等级和可用额度窗口；优先显示真实存在的 5 小时窗口，缺失时自动显示 1 周窗口；提供“经典方环、极光玻璃、像素伙伴、机械翻牌”四种样式，均适配深色/浅色主题；刷新后剩余百分比变化会以短动画过渡；拖动时会限制在显示器工作区内，避免移出屏幕后找不到。
