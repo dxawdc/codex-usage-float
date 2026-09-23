@@ -24,6 +24,22 @@ async function main() {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const officialCost = estimateTokenCost({ inputTokens: 1000000, cachedInputTokens: 0, outputTokens: 1000000 }, 'gpt-6-sol')?.total;
         const missingCost = estimateTokenCost({ inputTokens: 1000000, outputTokens: 1000000 }, 'gpt-7-new-model');
+        const mixedCost = estimateModelAwareCost({ modelBreakdown: [
+          { model: 'gpt-6-sol', inputTokens: 1000000, outputTokens: 1000000 },
+          { model: 'gpt-7-new-model', inputTokens: 1000000, outputTokens: 1000000 }
+        ] });
+        const allUnpricedCost = estimateModelAwareCost({ modelBreakdown: [
+          { model: 'gpt-7-new-model', inputTokens: 1000000, outputTokens: 1000000 }
+        ] });
+        renderLocalSummary({ windows: { today: {
+          inputTokens: 2000000, outputTokens: 2000000,
+          modelBreakdown: [
+            { model: 'gpt-6-sol', inputTokens: 1000000, outputTokens: 1000000 },
+            { model: 'gpt-7-new-model', inputTokens: 1000000, outputTokens: 1000000 }
+          ]
+        } } });
+        const mixedSummaryText = document.getElementById('localSummarySubtitle').textContent;
+        renderLocalSummary(state.snapshot.localTokenSummary);
         const migrated = normalizePricing({ models: { 'gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 } } });
         const select = document.getElementById('pricingModelSelect');
         const option = select.options[0];
@@ -158,6 +174,10 @@ async function main() {
           dialogOpen,
           officialCost,
           missingCost,
+          mixedCost,
+          allUnpricedCost,
+          nullPriceText: formatUsdEstimate(allUnpricedCost.total),
+          mixedSummaryText,
           migratedDefaultsCount: Object.keys(migrated.models).length,
           optionCount: select.options.length,
           resetCardText,
@@ -198,6 +218,11 @@ async function main() {
     assert.equal(result.dialogOpen, true, 'pricing dialog did not open');
     assert.equal(result.officialCost, 12, 'new model did not use synchronized official pricing');
     assert.equal(result.missingCost, null, 'missing new model price used an unrelated fallback');
+    assert.equal(result.mixedCost.total, 12, 'an unpriced model should not hide the priced subtotal');
+    assert.equal(result.mixedCost.unpricedModelCount, 1, 'unpriced model count should be visible');
+    assert.equal(result.allUnpricedCost.total, null, 'all-unpriced usage should not appear free');
+    assert.equal(result.nullPriceText, '--', 'all-unpriced usage should show unavailable cost');
+    assert.match(result.mixedSummaryText, /总估算.*\$12.*未计入 1 个无定价模型/, 'subtotal should identify omitted models');
     assert.equal(result.migratedDefaultsCount, 0, 'legacy defaults block official price updates');
     assert.ok(result.optionCount >= 1, 'pricing select has no options');
     assert.equal(result.resetCardText, 'reset*3', 'account card does not show its available reset-card count');

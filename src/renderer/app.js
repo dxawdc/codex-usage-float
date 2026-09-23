@@ -203,6 +203,7 @@ function formatTokens(value) {
 }
 
 function formatUsdEstimate(value) {
+  if (value === null || value === undefined) return '--';
   const number = Number(value);
   if (!Number.isFinite(number)) return '--';
   const fractionDigits = number === 0 ? 2 : number < 0.01 ? 4 : number < 1 ? 3 : 2;
@@ -294,13 +295,22 @@ function estimateModelAwareCost(window) {
   const breakdown = Array.isArray(window.modelBreakdown) && window.modelBreakdown.length
     ? window.modelBreakdown
     : [{ model: 'unknown', ...window }];
-  const total = { input: 0, output: 0, total: 0 };
+  const total = { input: 0, output: 0, total: 0, pricedModelCount: 0, unpricedModelCount: 0 };
   for (const item of breakdown) {
     const cost = estimateTokenCost(item, item.model);
-    if (!cost) return null;
+    if (!cost) {
+      total.unpricedModelCount += 1;
+      continue;
+    }
+    total.pricedModelCount += 1;
     total.input += cost.input;
     total.output += cost.output;
     total.total += cost.total;
+  }
+  if (!total.pricedModelCount) {
+    total.input = null;
+    total.output = null;
+    total.total = null;
   }
   return total;
 }
@@ -603,7 +613,8 @@ function renderLocalSummary(summary) {
   els.localInputCost.textContent = formatUsdEstimate(cost?.input);
   els.localOutputCost.textContent = formatUsdEstimate(cost?.output);
   const modelCount = Array.isArray(current?.modelBreakdown) ? current.modelBreakdown.length : 0;
-  els.localSummarySubtitle.textContent = `所有会话 · ${modelCount || 1} 个模型 · 总估算 ${formatUsdEstimate(cost?.total)}`;
+  const missingPriceNote = cost?.unpricedModelCount ? `（未计入 ${cost.unpricedModelCount} 个无定价模型）` : '';
+  els.localSummarySubtitle.textContent = `所有会话 · ${modelCount || 1} 个模型 · 总估算 ${formatUsdEstimate(cost?.total)}${missingPriceNote}`;
   els.localTokenMeta.textContent = [
     `推理输出 ${formatTokens(current?.reasoningOutputTokens)}`,
     `总计 ${formatTokens(current?.totalTokens)}`,
