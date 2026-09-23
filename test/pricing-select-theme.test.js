@@ -6,6 +6,7 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const styles = fs.readFileSync(path.join(root, 'src', 'renderer', 'styles.css'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const lockfile = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
 
 test('pricing select declares readable native option colors in both themes', () => {
   assert.match(styles, /--select-popup-bg:\s*#202329;/);
@@ -17,6 +18,8 @@ test('pricing select declares readable native option colors in both themes', () 
   assert.match(styles, /\.price-field select option:checked\s*\{[\s\S]*?var\(--select-popup-selected-bg\)[\s\S]*?color:\s*var\(--select-popup-selected-ink\);/);
 });
 
-test('release version is 2.2.0', () => {
-  assert.equal(manifest.version, '2.2.0');
+test('package and lockfile versions agree', () => {
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(lockfile.version, manifest.version);
+  assert.equal(lockfile.packages[''].version, manifest.version);
 });

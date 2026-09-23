@@ -9,6 +9,7 @@ const state = {
   switchPhase: 'idle',
   theme: localStorage.getItem('codexUsageTheme') || 'dark',
   pricing: null,
+  officialPricing: null,
   pricingModel: 'gpt-5.5',
   settings: { refreshIntervalMinutes: 30, alwaysOnTop: true, orbStyle: 'classic' },
   settingsTab: 'refresh',
@@ -77,6 +78,8 @@ const els = {
   refreshIntervalField: document.getElementById('refreshIntervalField'),
   alwaysOnTopField: document.getElementById('alwaysOnTopField'),
   pricingModelSelect: document.getElementById('pricingModelSelect'),
+  pricingSourceNote: document.getElementById('pricingSourceNote'),
+  refreshPricingButton: document.getElementById('refreshPricingButton'),
   inputPriceField: document.getElementById('inputPriceField'),
   cachedInputPriceField: document.getElementById('cachedInputPriceField'),
   outputPriceField: document.getElementById('outputPriceField'),
@@ -234,13 +237,16 @@ function normalizePricing(value) {
   const isLegacyFlatPrice = ['input', 'cachedInput', 'output'].some((key) => Object.hasOwn(source, key));
   const fallback = normalizePrice(source.fallback || (isLegacyFlatPrice ? source : null));
   const models = {};
-  for (const [model, defaultPrice] of Object.entries(DEFAULT_MODEL_PRICING_PER_MILLION)) {
-    models[model] = normalizePrice(source.models?.[model], defaultPrice);
-  }
   for (const [model, price] of Object.entries(source.models || {})) {
-    models[normalizeModelKey(model)] = normalizePrice(price, models[normalizeModelKey(model)] || fallback);
+    const key = normalizeModelKey(model);
+    if (!/^[a-z][a-z0-9._-]{0,100}$/.test(key)) continue;
+    const normalized = normalizePrice(price, DEFAULT_MODEL_PRICING_PER_MILLION[key] || fallback);
+    const legacyDefault = DEFAULT_MODEL_PRICING_PER_MILLION[key];
+    if (source.version !== 2 && legacyDefault &&
+        ['input', 'cachedInput', 'output'].every((field) => normalized[field] === legacyDefault[field])) continue;
+    models[key] = normalized;
   }
-  return { fallback, models };
+  return { version: 2, fallback, models };
 }
 
 function loadPricingSettings() {
@@ -260,12 +266,17 @@ function savePricingSettings(value) {
 
 function pricingForModel(model, pricing = state.pricing) {
   const normalized = normalizePricing(pricing);
-  return normalized.models[normalizeModelKey(model)] || normalized.fallback;
+  const key = normalizeModelKey(model);
+  const baseKey = key.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  return normalized.models[key] || state.officialPricing?.models?.[key] ||
+    state.officialPricing?.models?.[baseKey] || DEFAULT_MODEL_PRICING_PER_MILLION[key] ||
+    DEFAULT_MODEL_PRICING_PER_MILLION[baseKey] || (key === 'unknown' ? normalized.fallback : null);
 }
 
 function estimateTokenCost(tokens, model, pricing = state.pricing) {
   if (!tokens) return null;
   const price = pricingForModel(model, pricing);
+  if (!price) return null;
   const inputTokens = Math.max(0, Number(tokens.inputTokens) || 0);
   const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(tokens.cachedInputTokens) || 0));
   const outputTokens = Math.max(0, Number(tokens.outputTokens) || 0);
@@ -283,13 +294,15 @@ function estimateModelAwareCost(window) {
   const breakdown = Array.isArray(window.modelBreakdown) && window.modelBreakdown.length
     ? window.modelBreakdown
     : [{ model: 'unknown', ...window }];
-  return breakdown.reduce((total, item) => {
+  const total = { input: 0, output: 0, total: 0 };
+  for (const item of breakdown) {
     const cost = estimateTokenCost(item, item.model);
+    if (!cost) return null;
     total.input += cost.input;
     total.output += cost.output;
     total.total += cost.total;
-    return total;
-  }, { input: 0, output: 0, total: 0 });
+  }
+  return total;
 }
 
 function formatMinute(value) {
@@ -719,6 +732,7 @@ function setPricingStatus(message, tone = '') {
 }
 
 function priceInputValue(value) {
+  if (value === null || value === undefined) return '';
   const number = Number(value);
   return Number.isFinite(number) ? String(number) : '';
 }
@@ -746,9 +760,16 @@ function setPricingModelOptions() {
 
 function setPricingFields(pricing = state.pricing) {
   const next = pricingForModel(state.pricingModel, pricing);
-  els.inputPriceField.value = priceInputValue(next.input);
-  els.cachedInputPriceField.value = priceInputValue(next.cachedInput);
-  els.outputPriceField.value = priceInputValue(next.output);
+  els.inputPriceField.value = priceInputValue(next?.input);
+  els.cachedInputPriceField.value = priceInputValue(next?.cachedInput);
+  els.outputPriceField.value = priceInputValue(next?.output);
+  const key = state.pricingModel;
+  const baseKey = key.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  const source = pricing?.models?.[key] ? '手动定价' : state.officialPricing?.models?.[key] || state.officialPricing?.models?.[baseKey] ? '官方定价' :
+    DEFAULT_MODEL_PRICING_PER_MILLION[key] ? '内置预设' : key === 'unknown' ? '未知模型兜底价' : '未找到价格';
+  const synced = state.officialPricing?.updatedAt ? `，同步于 ${formatMinute(state.officialPricing.updatedAt)}` : '';
+  const stale = state.officialPricing?.stale ? '（同步已过期）' : '';
+  els.pricingSourceNote.textContent = `${source}${synced}${stale}。${state.officialPricing?.error || ''}`;
 }
 
 function readPricingFields() {
@@ -760,7 +781,7 @@ function readPricingFields() {
   const result = {};
   for (const [key, field, label] of fields) {
     const number = Number(field.value);
-    if (!Number.isFinite(number) || number < 0) {
+    if (field.value.trim() === '' || !Number.isFinite(number) || number < 0) {
       throw new Error(`${label}价格需要是大于等于 0 的数字`);
     }
     result[key] = number;
@@ -982,11 +1003,22 @@ els.pricingModelSelect.addEventListener('change', () => {
   state.pricingModel = normalizeModelKey(els.pricingModelSelect.value);
   setPricingFields();
 });
+els.refreshPricingButton.addEventListener('click', () => {
+  els.refreshPricingButton.disabled = true;
+  setPricingStatus('正在同步官方定价…', 'pending');
+  window.codexUsage.refreshPricing().then((value) => {
+    state.officialPricing = value;
+    setPricingFields();
+    renderLocalSummary(state.snapshot?.localTokenSummary);
+    setPricingStatus(value.error || '官方定价已同步。', value.error ? 'error' : 'success');
+  }).catch((error) => setPricingStatus(String(error?.message || error), 'error'))
+    .finally(() => { els.refreshPricingButton.disabled = false; });
+});
 els.resetPricingButton.addEventListener('click', () => {
   const pricing = savePricingSettings();
   setPricingFields(pricing);
   renderLocalSummary(state.snapshot?.localTokenSummary);
-  setPricingStatus('已恢复默认定价。', 'success');
+  setPricingStatus('已清除手动改价，优先使用官方定价。', 'success');
   schedulePanelHeightResize();
 });
 els.savePricingButton.addEventListener('click', () => {
@@ -1146,5 +1178,14 @@ window.codexUsage.onSnapshot((value) => {
 });
 
 state.pricing = loadPricingSettings();
+window.codexUsage.onPricing((value) => {
+  state.officialPricing = value;
+  renderLocalSummary(state.snapshot?.localTokenSummary);
+  if (!els.pricingDialog.hidden && state.settingsTab === 'pricing') setPricingFields();
+});
+window.codexUsage.getPricing().then((value) => {
+  state.officialPricing = value;
+  renderLocalSummary(state.snapshot?.localTokenSummary);
+}).catch(() => {});
 applyTheme(state.theme);
 load();

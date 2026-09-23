@@ -94,6 +94,9 @@ let settings = { refreshIntervalMinutes: 30, alwaysOnTop: true, orbStyle: 'class
 
 contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => Promise.resolve(snapshot),
+  getPricing: () => Promise.resolve({ models: { 'gpt-6-sol': { input: 2, cachedInput: 0.2, output: 10 } }, updatedAt: '2026-09-23T00:00:00Z', stale: false, error: null }),
+  refreshPricing: () => Promise.resolve({ models: { 'gpt-6-sol': { input: 2, cachedInput: 0.2, output: 10 } }, updatedAt: '2026-09-23T00:00:00Z', stale: false, error: null }),
+  onPricing: () => undefined,
   getSettings: () => Promise.resolve({ ...settings }),
   saveSettings: (patch = {}) => {
     settings = { ...settings, ...patch };

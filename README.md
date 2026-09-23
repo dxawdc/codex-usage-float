@@ -3,28 +3,29 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.2.0-6b7280" alt="latest release v2.2.0" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.2.1-6b7280" alt="latest release v2.2.1" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-43-47848f" alt="Electron 43" />
   </p>
 </div>
 
-当前 GitHub Releases 最新已发布版本为 `v2.2.0`，Windows 便携版 EXE 通过 Release 提供。
+当前 GitHub Releases 最新版本为 `v2.2.1`，Windows 便携版 EXE 通过 Release 提供。
 
-一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，按接口实际返回情况展示多个账号的 5 小时和/或 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持四种悬浮球样式、深色/浅色主题和自定义 Token 定价。
+一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，按接口实际返回情况展示多个账号的 5 小时和/或 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持四种悬浮球样式、深色/浅色主题、自动同步模型定价和手动覆盖。
 
 ## 下载安装
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **最新 GitHub Release**：[CodexUsageFloat v2.2.0](https://github.com/dxawdc/codex-usage-float/releases/download/v2.2.0/CodexUsageFloat-2.2.0.exe)
+- **最新 GitHub Release**：[CodexUsageFloat v2.2.1](https://github.com/dxawdc/codex-usage-float/releases/download/v2.2.1/CodexUsageFloat-2.2.1.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
+| `v2.2.1` | `CodexUsageFloat-2.2.1.exe` | `CFCF7498B7C4242F81D1A1A432A00EDA21775EC246132258C960DE3D4FFDFD9B` |
 | `v2.2.0` | `CodexUsageFloat-2.2.0.exe` | `014949722E8FC22A3F4EF396C14C35451E6D948435E23589E23BC154C713F2A7` |
 | `v2.1.0` | `CodexUsageFloat-2.1.0.exe` | `AE68249927D262C9A389E14E6E1C4D0192C861A6DE16E8AC8FECCE1F654BD220` |
 | `v2.0.3` | `CodexUsageFloat-2.0.3.exe` | `D1F166298819A9B3FC40EF1E6D74A6492971D7E71D1F13AAD9EEFEDBC3CD9FA1` |
@@ -32,7 +33,7 @@
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.2.0.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.2.1.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -184,9 +185,11 @@ npm run dev
 
 本地会话日志会读取同一会话中的 `turn_context.payload.model`，并将后续 `token_count` 增量按模型拆分。日志未提供模型上下文的历史用量会显示为“未识别模型”，可单独配置其兜底单价。
 
-内置预设覆盖 GPT-5.6 Sol、GPT-5.6 Terra、GPT-5.6 Luna、GPT-5.5、GPT-5.4、GPT-5.4 Mini、GPT-5.3 Codex 和 GPT-5.2；可在“模型定价”Tab 中逐个模型修改输入、缓存输入和输出单价。新模型会随本地日志自动出现在设置中。
+应用启动时及之后每 24 小时尝试同步 [OpenAI 官方定价页](https://developers.openai.com/api/docs/pricing) 的 Standard 短上下文文本费率，并将最近一次成功结果保存在本机。同步失败时继续使用上次成功的价格；离线首次启动时使用内置预设。新模型会随本地日志自动出现在设置中，匹配到官方价格后无需更新应用。若新模型暂无可匹配价格，费用显示 `--`，避免套用其他模型的单价。
 
-费用估算按模型采用内置的官方标准费率预设；可通过面板顶部的“设置中心”进入“模型定价”Tab，选择模型并修改输入、缓存输入和输出三项单价，保存后会立即重新计算本地汇总中的估算金额。各模型的官方费率可能变动，请以 OpenAI 的 [Codex rate card](https://help.openai.com/en/articles/20001106-codex-rate-card-2) 与 [模型价格页](https://developers.openai.com/api/docs/models) 为准：
+“模型定价”Tab 仍可逐个模型修改输入、缓存输入和输出单价；手动价格优先于同步价格，点击“清除手动改价”可恢复自动定价。
+
+费用估算优先使用手动价格，其次使用已同步的官方 Standard 短上下文费率，最后使用内置预设。保存手动价格后会立即重新计算本地汇总中的估算金额。各模型的官方费率可能变动，请以 OpenAI 的 [Codex rate card](https://help.openai.com/en/articles/20001106-codex-rate-card-2) 与 [模型价格页](https://developers.openai.com/api/docs/pricing) 为准：
 
 ```text
 输入费用 = (输入 - 缓存输入) / 1,000,000 × 当前模型输入单价
@@ -294,11 +297,18 @@ AGENTS.md                 项目维护与交付规则
 - Codex / ChatGPT 内部接口并非稳定公开契约，字段或访问规则变化可能导致部分信息暂时不可用。
 - 账号 Token 接口可能延迟，且通常只有总量；输入、输出、缓存输入拆分主要来自本地日志。
 - 账号 Token 只统计具有账号 ID、会话证据或额度指纹证据的日志；无法确认归属的事件不会强行计入当前账号。底部本地汇总仍采用所有会话口径。
-- GPT-5.5 费用默认按标准 API 基础费率估算；即使手动调整单价，也只能作为近似参考，不能替代实际 API 或订阅账单。
+- 费用按标准 API 基础文本费率估算；同步价格和手动价格都只能作为近似参考，不能替代实际 API 或订阅账单。
 - 替换 `auth.json` 不会刷新已运行进程的内存认证状态。手动切换后需要自行重启 Codex；自动切换依赖 Windows 应用入口和当前用户对桌面进程的管理权限，失败时需要手动打开应用。
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 版本更新记录
+
+### v2.2.1 - 2026-09-23
+
+- 自动同步 OpenAI 官方 Standard 短上下文模型定价，支持新模型价格、本地缓存和失败时保留上次成功结果。
+- 手动定价继续优先；查不到价格的新模型显示 `--`，避免套用旧模型单价。设置中心增加立即同步和价格来源提示。
+- 更新定价解析、缓存和 Electron 界面回归测试，修复 3 项构建依赖安全审计告警。
+- 构建 Windows portable EXE `CodexUsageFloat-2.2.1.exe`，SHA-256 为 `CFCF7498B7C4242F81D1A1A432A00EDA21775EC246132258C960DE3D4FFDFD9B`。
 
 ### v2.2.0 - 2026-08-21
 

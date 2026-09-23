@@ -168,7 +168,9 @@
               <p class="hint">支持 5–180 分钟，保存后立即生效。</p>
             </div>
             <div id="pricingSettingsPanel" class="settings-panel" hidden>
-              <p>美元 / 100万 Token。每种模型独立估算，官方价格变化时可在这里调整。</p>
+              <p>美元 / 100万 Token。自动同步官方标准费率，手动修改会覆盖该模型的同步价格。</p>
+              <p id="pricingSourceNote" class="hint"></p>
+              <button id="refreshPricingButton" class="text-button ghost" type="button">立即同步官方定价</button>
               <div class="pricing-form">
               <label class="price-field price-model-field">
                 <span>模型</span>
@@ -226,7 +228,7 @@
             </div>
             <div id="pricingStatus" class="switch-status" hidden></div>
             <div class="confirm-actions">
-              <button id="resetPricingButton" class="text-button ghost">恢复默认</button>
+              <button id="resetPricingButton" class="text-button ghost">清除手动改价</button>
               <button id="savePricingButton" class="text-button">保存</button>
             </div>
           </section>

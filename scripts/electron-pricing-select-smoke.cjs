@@ -22,6 +22,9 @@ async function main() {
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         document.getElementById('pricingSettingsButton').click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
+        const officialCost = estimateTokenCost({ inputTokens: 1000000, cachedInputTokens: 0, outputTokens: 1000000 }, 'gpt-6-sol')?.total;
+        const missingCost = estimateTokenCost({ inputTokens: 1000000, outputTokens: 1000000 }, 'gpt-7-new-model');
+        const migrated = normalizePricing({ models: { 'gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 } } });
         const select = document.getElementById('pricingModelSelect');
         const option = select.options[0];
         const resetCardInlines = [...document.querySelectorAll('.account-reset-card-inline')];
@@ -153,6 +156,9 @@ async function main() {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
           dialogOpen,
+          officialCost,
+          missingCost,
+          migratedDefaultsCount: Object.keys(migrated.models).length,
           optionCount: select.options.length,
           resetCardText,
           emptyResetCardText,
@@ -190,6 +196,9 @@ async function main() {
     `);
 
     assert.equal(result.dialogOpen, true, 'pricing dialog did not open');
+    assert.equal(result.officialCost, 12, 'new model did not use synchronized official pricing');
+    assert.equal(result.missingCost, null, 'missing new model price used an unrelated fallback');
+    assert.equal(result.migratedDefaultsCount, 0, 'legacy defaults block official price updates');
     assert.ok(result.optionCount >= 1, 'pricing select has no options');
     assert.equal(result.resetCardText, 'reset*3', 'account card does not show its available reset-card count');
     assert.equal(result.emptyResetCardText, 'reset*0', 'empty account card does not show zero reset-card count');

@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('codexUsage', {
   getSnapshot: () => ipcRenderer.invoke('usage:get'),
+  getPricing: () => ipcRenderer.invoke('pricing:get'),
+  refreshPricing: () => ipcRenderer.invoke('pricing:refresh'),
+  onPricing: (callback) => ipcRenderer.on('pricing-data', (_event, value) => callback(value)),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   refresh: () => ipcRenderer.invoke('usage:refresh'),

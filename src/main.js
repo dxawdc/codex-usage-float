@@ -10,6 +10,7 @@ const { createCodexProcessManager } = require('./lib/codex-process-manager');
 const { mergePatch, mergeSparse } = require('./lib/object-utils');
 const { AuthRequestError, createJsonFetcher, throwForAuthFailure } = require('./lib/usage-http');
 const { createTokenLogCache } = require('./lib/token-log-cache');
+const { createPricingCatalog } = require('./lib/pricing-catalog');
 const { mapAggregateUsageWindows } = require('./lib/usage-windows');
 const {
   firstFreshMembershipExpiresAt,
@@ -70,6 +71,18 @@ let config = {
   orbStyle: 'classic'
 };
 let state = createEmptyState();
+const pricingCatalog = createPricingCatalog({
+  readJson,
+  writeJson,
+  cachePath: () => path.join(app.getPath('userData'), 'pricing-catalog.json'),
+  fetchText: async (url) => {
+    const response = await net.fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const markdown = await response.text();
+    if (markdown.length > 1000000) throw new Error('官方定价页面过大');
+    return markdown;
+  }
+});
 
 function configPath() {
   return path.join(app.getPath('userData'), 'config.json');
@@ -2323,6 +2336,9 @@ function startRefreshTimer() {
   const minutes = normalizeRefreshInterval(config.refreshIntervalMinutes);
   refreshTimer = setInterval(() => {
     refreshUsage('timer').catch(() => {});
+    pricingCatalog.refresh().then((value) => {
+      if (floatWindow && !floatWindow.isDestroyed()) floatWindow.webContents.send('pricing-data', value);
+    }).catch(() => {});
   }, minutes * 60 * 1000);
 }
 
@@ -2336,7 +2352,11 @@ app.whenReady().then(async () => {
   }
   app.setAppUserModelId('com.codexusage.float');
   await loadState();
+  await pricingCatalog.load();
   createFloatWindow();
+  pricingCatalog.refresh().then((value) => {
+    if (floatWindow && !floatWindow.isDestroyed()) floatWindow.webContents.send('pricing-data', value);
+  }).catch(() => {});
   try {
     await refreshUsage('startup');
   } catch (error) {
@@ -2366,6 +2386,8 @@ function handleTrusted(channel, handler) {
 }
 
 handleTrusted('usage:get', () => getViewSnapshot());
+handleTrusted('pricing:get', () => pricingCatalog.snapshot());
+handleTrusted('pricing:refresh', () => pricingCatalog.refresh(true));
 handleTrusted('settings:get', () => getSettingsSnapshot());
 handleTrusted('settings:save', async (patch = {}) => {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('无效的设置');
