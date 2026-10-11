@@ -6,6 +6,7 @@
 - [ ] `git status --short` 仅包含计划发布的源码、测试和文档。
 - [ ] 搜索并确认不存在 token、`auth.json`、账号库、Cookie、私钥和抓包正文。
 - [ ] 运行 `npm ci` 后执行 `npm run verify`。
+- [ ] 执行 `npx --no-install install-electron` 准备 Electron 二进制（新版 Electron 不在 `npm ci` 阶段自动下载）。
 - [ ] 执行 `npm run build:dir`，确认 Electron 应用可以完成目录打包。
 - [ ] 对目录版或 portable EXE 执行 `--self-test`，确认安全存储和 Codex 只读进程检测通过。
 - [ ] 在独立测试账号上验证导入、手动切换、自动切换、添加账号、失效账号提示和删除非当前账号。

@@ -119,6 +119,7 @@ $codex-usage-history-poster 分析我的本地 Codex 历史用量，并生成包
 git clone https://github.com/dxawdc/codex-usage-float.git
 cd codex-usage-float
 npm install
+npx --no-install install-electron
 npm start
 ```
 
@@ -267,8 +268,11 @@ npm run dev
 默认生成 Windows portable EXE：
 
 ```powershell
+npx --no-install install-electron
 npm run build
 ```
+
+Electron 43.7.9 在首次运行时下载二进制；全新安装依赖后直接打包，需要先执行上面的 `install-electron`，已有二进制时会直接复用。
 
 产物输出到 `dist/`，文件名默认为：
 
@@ -281,6 +285,7 @@ CodexUsageFloat-2.2.2.exe
 ```powershell
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+npx --no-install install-electron
 npm run build
 ```
 
