@@ -1072,6 +1072,7 @@ svg {
 }
 
 .reset-card strong {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1084,6 +1085,10 @@ svg {
 .reset-card span {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+.reset-card-use {
+  flex: 0 0 auto;
 }
 
 .card-list .empty {

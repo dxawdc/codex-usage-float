@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('codexUsage', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   refresh: () => ipcRenderer.invoke('usage:refresh'),
+  useResetCredit: (request) => ipcRenderer.invoke('reset-credits:consume', request),
   openWeb: () => ipcRenderer.invoke('usage:open-web'),
   openAbout: () => ipcRenderer.invoke('external:open-repo'),
   prepareAddAccount: () => ipcRenderer.invoke('accounts:prepare-add'),

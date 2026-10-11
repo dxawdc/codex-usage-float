@@ -3,14 +3,14 @@
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
   <p><sub>作者 @可以叫我才哥</sub></p>
   <p>
-    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.2.1-6b7280" alt="latest release v2.2.1" /></a>
+    <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.2.2-6b7280" alt="latest release v2.2.2" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-6b7280" alt="platform Windows" />
     <img src="https://img.shields.io/badge/Electron-43-47848f" alt="Electron 43" />
   </p>
 </div>
 
-当前 GitHub Releases 最新版本为 `v2.2.1`，Windows 便携版 EXE 通过 Release 提供。
+当前 GitHub Releases 最新版本为 `v2.2.2`，Windows 便携版 EXE 通过 Release 提供。本版修复大体积日志引起的启动闪退，并支持直接在详情弹窗中使用重置卡。
 
 一个面向 Windows 桌面的轻量 Codex 多账号用量悬浮工具。应用读取本机 Codex 登录状态，按接口实际返回情况展示多个账号的 5 小时和/或 1 周额度、会员信息、重置卡、账号 Token 概览，以及所有本地会话的 Token 分类汇总与费用估算；支持四种悬浮球样式、深色/浅色主题、自动同步模型定价和手动覆盖。
 
@@ -18,13 +18,14 @@
 
 无需配置 Node.js，直接下载 Windows 便携版 EXE 即可运行：
 
-- **最新 GitHub Release**：[CodexUsageFloat v2.2.1](https://github.com/dxawdc/codex-usage-float/releases/download/v2.2.1/CodexUsageFloat-2.2.1.exe)
+- **最新 GitHub Release**：[CodexUsageFloat v2.2.2](https://github.com/dxawdc/codex-usage-float/releases/download/v2.2.2/CodexUsageFloat-2.2.2.exe)
 - **全部版本**：[GitHub Releases](https://github.com/dxawdc/codex-usage-float/releases)
 
 下载后双击 EXE 即可启动，无需安装。应用目前没有商业代码签名，Windows SmartScreen 可能显示“未知发布者”；请确认下载地址来自本仓库，并按需核对 SHA-256：
 
 | 版本 | 文件 | SHA-256 |
 | --- | --- | --- |
+| `v2.2.2` | `CodexUsageFloat-2.2.2.exe` | `6D18ED7D8B447001E2B255136407823A8DCDF25D35BE9BFDF33CBDBDFFDFF320` |
 | `v2.2.1` | `CodexUsageFloat-2.2.1.exe` | `CFCF7498B7C4242F81D1A1A432A00EDA21775EC246132258C960DE3D4FFDFD9B` |
 | `v2.2.0` | `CodexUsageFloat-2.2.0.exe` | `014949722E8FC22A3F4EF396C14C35451E6D948435E23589E23BC154C713F2A7` |
 | `v2.1.0` | `CodexUsageFloat-2.1.0.exe` | `AE68249927D262C9A389E14E6E1C4D0192C861A6DE16E8AC8FECCE1F654BD220` |
@@ -33,7 +34,7 @@
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\CodexUsageFloat-2.2.1.exe -Algorithm SHA256
+Get-FileHash .\CodexUsageFloat-2.2.2.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -97,7 +98,7 @@ $codex-usage-history-poster 分析我的本地 Codex 历史用量，并生成包
 - **可控账号切换**：提供手动切换与自动切换；均只原子替换 `~/.codex/auth.json`，项目、任务、会话、插件和配置继续共用。自动切换会先关闭完整 Codex 桌面应用，保存当前最新认证，再切换并重新启动。工具不修改 `CODEX_HOME` 和 `config.toml`，也不会自动轮换账号。
 - **账号 Token 概览**：每个账号展示今日、7 天、30 天、累计与单日峰值（含峰值日期）。数据优先来自账号接口，可能存在同步延迟；接口未提供的字段会显示 `--`。
 - **本地日志汇总**：按今日、7 天、30 天和累计切换查看输入、缓存输入、缓存率、输出、推理输出、总计、文件数和 `token_count` 事件数；按模型双列展示用量与费用，并使用独立模型费率估算总费用。
-- **重置卡列表**：账号卡片内汇总显示可用重置卡数量，详情区显示当前账号的可用完整重置卡、适用窗口和预计有效期；超过 2 张时列表内部滚动。
+- **重置卡使用**：账号卡片汇总可用数量，详情弹窗显示当前账号的卡片、适用窗口和有效期；点击“使用”，核对账号与卡片后确认提交，成功后刷新额度。已过期或缺少标识的卡片不可使用，同一卡片重试沿用固定请求标识；超过 2 张时列表内部滚动。
 - **自适应面板**：面板高度随内容变化，底部操作区保持独立，不与日志信息重叠。
 - **设置中心**：支持深色/浅色主题；在统一设置中心的“刷新时间 / 模型定价 / 显示模式 / 悬浮球”左侧 Tab 中调整自动刷新间隔（默认 30 分钟）、各模型输入/缓存输入/输出单价、窗口置顶状态和悬浮球样式。选择样式后立即预览，保存后固定使用。
 - **过程反馈**：导入已有账号时明确提示已更新；账号切换展示进行中、成功或失败状态。
@@ -108,7 +109,7 @@ $codex-usage-history-poster 分析我的本地 Codex 历史用量，并生成包
 ### 环境要求
 
 - Windows 10 或 Windows 11
-- Node.js 20 或更高版本
+- Node.js 22.12 或更高版本（仅源码运行与打包需要）
 - npm
 - 已通过 Codex 登录，且存在 `~/.codex/auth.json`
 
@@ -141,6 +142,15 @@ npm run dev
 手动切换要求先完全退出 Codex，再保存当前最新认证并替换活动 `auth.json`，完成后由用户打开 Codex。自动切换会关闭完整桌面端，等待认证落盘，再保存当前账号、替换目标认证并从 Windows 应用入口重新启动。自动启动失败时请手动打开 Codex。如果账号提示 `token_revoked` 或 refresh token 已使用，需要通过“添加账号”流程重新登录一次；旧令牌无法恢复。
 
 所有账号继续使用同一个 `~/.codex`。本工具不会移动或删除项目、任务、会话、SQLite 状态、插件、skills、`config.toml` 或本地日志；只切换 `auth.json`。服务端按账号隔离的云端数据仍由 OpenAI 账号权限决定。
+
+## 在弹窗中使用重置卡
+
+1. 单击悬浮球展开详情，确认当前账号及其重置卡列表。
+2. 点击目标卡片右侧的“使用”，在确认框核对账号和卡片名称。
+3. 点击“确认使用”。卡片会被消耗，额度按卡片规则重置，此操作不可撤销。
+4. 成功后查看刷新的额度与卡片列表。若已提示使用成功但数据暂未刷新，可稍后手动刷新；该卡仍标记为“已使用”。网络异常时可重试同一卡片，请求标识保持不变。
+
+重置卡仅对当前登录账号提交，操作前会重新检查账号身份、卡片状态与有效期。接口不可用或需要重新登录时会提示原因。
 
 ## 数据来源与口径
 
@@ -180,6 +190,8 @@ npm run dev
 | 总计 | `total_tokens` |
 
 本地日志汇总固定统计所有会话，不拆分账号。多个账号共用同一个 `~/.codex` 时，本地历史文件通常缺少可靠账号标识，因此不应将这部分数据解释为某个账号的精确账单。
+
+日志采用 256 KB 分块读取，支持超过 2 GB 的文件；超长单行只流式保留统计所需字段，避免图片或工具输出占满内存。后续刷新增量扫描，暂时读取失败时保留已缓存统计，并提示失败文件或无法解析的记录。首次扫描大量历史日志可能需要数十秒。
 
 ### 按模型费用估算与自定义定价
 
@@ -238,6 +250,7 @@ npm run dev
 - 双击悬浮球：立即刷新用量。
 - 鼠标滚轮：调整悬浮球大小。
 - 刷新按钮：刷新已保存账号、当前账号重置卡和本地日志汇总。
+- 重置卡“使用”：核对当前账号和卡片后确认消耗，成功后刷新额度；取消确认不会消耗卡片。
 - 设置中心：在“刷新时间”Tab 调整账号自动刷新间隔（5–180 分钟，默认 30 分钟）；在“模型定价”Tab 调整模型费用估算单价；在“显示模式”Tab 开关窗口置顶；在“悬浮球”Tab 选择四种外观之一，选择后实时预览，点击“保存悬浮球”后持久化。
 - 添加账号：关闭 Codex、保存当前认证并清除活动 `auth.json`，重新打开后登录新账号。
 - 导入当前账号：读取当前 `auth.json` 并保存或更新账号快照。
@@ -260,7 +273,7 @@ npm run build
 产物输出到 `dist/`，文件名默认为：
 
 ```text
-CodexUsageFloat-2.2.0.exe
+CodexUsageFloat-2.2.2.exe
 ```
 
 如果 Electron 或 electron-builder 二进制下载较慢，可只为当前 PowerShell 会话设置镜像：
@@ -274,6 +287,16 @@ npm run build
 `dist/` 默认已加入 `.gitignore`。正式发布的 portable EXE 只有在经过检查并按发布要求确认后才会显式纳入仓库或上传 GitHub Release。
 
 项目维护者进行安全检查、正式打包和 GitHub Release 时，请遵循 [安全发布与 GitHub Release 检查清单](docs/RELEASE_CHECKLIST.md)。
+
+提交前检查与重置卡界面回归：
+
+```powershell
+npm run verify
+npm run smoke:reset-credit
+npm run build:dir
+```
+
+重置卡回归使用模拟账号和接口响应，不消耗真实卡片。
 
 ## 项目结构
 
@@ -302,6 +325,15 @@ AGENTS.md                 项目维护与交付规则
 - EXE 默认未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 ## 版本更新记录
+
+### v2.2.2 - 2026-10-11
+
+- 修复启动时读取超过 2 GB 的会话日志导致进程直接退出的问题；改为 256 KB 分块读取。超长单行流式提取模型、时间与 Token 字段，不再因图片或工具输出过长而整行丢弃；损坏行仍明确提示，暂时读取失败的文件保留缓存统计。
+- 弹窗重置卡列表新增“使用”按钮，确认目标账号与卡片后提交；使用前核实卡片状态，成功后刷新额度与卡片列表。
+- 同一卡片重试沿用固定请求标识，防止重复点击、超时或重启后重复消耗；缺少卡片标识或已过期的卡片不允许直接使用。
+- 重置成功后的刷新故障保留成功结果，卡片标记“已使用”；提交前采用同账号最新认证，避免令牌轮换导致请求失败。
+- Electron 更新至 43.7.9，构建工具更新至 26.17.0；下载依赖统一为 `@electron/get@5.1.0` 以移除旧代理依赖链的漏洞，本地开发需要 Node.js 22.12 或更高版本。应用版本仍为 2.2.2。
+- 重置卡接口依据本机官方客户端实现核对；回归测试使用模拟响应，不消耗真实卡片。
 
 ### v2.2.1 - 2026-09-23
 

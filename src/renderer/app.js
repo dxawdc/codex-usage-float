@@ -7,6 +7,10 @@ const state = {
   localRange: 'today',
   pendingSwitchAccount: null,
   switchPhase: 'idle',
+  pendingResetCredit: null,
+  resetCreditBusy: false,
+  resetCreditTrigger: null,
+  usedResetCredits: new Set(),
   theme: localStorage.getItem('codexUsageTheme') || 'dark',
   pricing: null,
   officialPricing: null,
@@ -47,6 +51,11 @@ const els = {
   resetCardsTitle: document.getElementById('resetCardsTitle'),
   cardCountText: document.getElementById('cardCountText'),
   resetCards: document.getElementById('resetCards'),
+  resetCreditDialog: document.getElementById('resetCreditDialog'),
+  resetCreditBody: document.getElementById('resetCreditBody'),
+  resetCreditStatus: document.getElementById('resetCreditStatus'),
+  cancelResetCreditButton: document.getElementById('cancelResetCreditButton'),
+  useResetCreditButton: document.getElementById('useResetCreditButton'),
   localSummarySubtitle: document.getElementById('localSummarySubtitle'),
   localInputTokens: document.getElementById('localInputTokens'),
   localCachedTokens: document.getElementById('localCachedTokens'),
@@ -570,7 +579,18 @@ function renderCards(cards = [], accountLabel = '--') {
       : card.resetAt
         ? formatMinute(card.resetAt)
         : '有效期未知';
-    row.append(title, meta);
+    const button = document.createElement('button');
+    button.className = 'mini-button reset-card-use';
+    button.textContent = '使用';
+    const account = state.snapshot?.currentAccount;
+    const used = state.usedResetCredits.has(`${account?.accountKey}:${card.id}`);
+    if (used) button.textContent = '已使用';
+    const expired = card.expiresAt && Date.parse(card.expiresAt) <= Date.now();
+    button.disabled = used || !card.id || !account?.accountKey || account.authStatus === 'needs_reauth' || expired || state.resetCreditBusy;
+    button.title = used ? '该卡已使用，请刷新卡片列表' : expired ? '该重置卡已过期' : !card.id ? '请刷新以获取可使用的卡片详情' : '使用此重置卡';
+    button.setAttribute('aria-label', `使用第 ${index + 1} 张${card.label || '重置卡'}`);
+    button.addEventListener('click', () => openResetCreditDialog(card, account, button));
+    row.append(title, meta, button);
     els.resetCards.appendChild(row);
   });
 }
@@ -603,6 +623,74 @@ function renderModelBreakdown(current) {
   }
 }
 
+function openResetCreditDialog(card, account, trigger) {
+  if (state.resetCreditBusy) return;
+  state.pendingResetCredit = { creditId: card.id, accountKey: account.accountKey };
+  state.resetCreditTrigger = trigger;
+  els.resetCreditBody.textContent = `为 ${accountDisplayName(account)} 使用 1 张「${card.label || '重置卡'}」。使用后将按卡片规则重置额度，卡片会被消耗，此操作不可撤销。`;
+  els.resetCreditStatus.hidden = true;
+  els.useResetCreditButton.hidden = false;
+  els.useResetCreditButton.disabled = false;
+  els.useResetCreditButton.textContent = '确认使用';
+  els.cancelResetCreditButton.textContent = '取消';
+  els.resetCreditDialog.hidden = false;
+  els.cancelResetCreditButton.focus();
+  schedulePanelHeightResize();
+}
+
+function closeResetCreditDialog() {
+  if (state.resetCreditBusy) return;
+  els.resetCreditDialog.hidden = true;
+  state.pendingResetCredit = null;
+  if (state.resetCreditTrigger?.isConnected) state.resetCreditTrigger.focus();
+  else els.refreshButton.focus();
+  state.resetCreditTrigger = null;
+}
+
+els.cancelResetCreditButton.addEventListener('click', closeResetCreditDialog);
+els.resetCreditDialog.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { event.preventDefault(); closeResetCreditDialog(); }
+  if (event.key === 'Tab') {
+    const buttons = [...els.resetCreditDialog.querySelectorAll('button')].filter((button) => !button.hidden && !button.disabled);
+    if (!buttons.length) { event.preventDefault(); return; }
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
+els.useResetCreditButton.addEventListener('click', async () => {
+  if (!state.pendingResetCredit || state.resetCreditBusy) return;
+  state.resetCreditBusy = true;
+  els.useResetCreditButton.disabled = true;
+  els.cancelResetCreditButton.disabled = true;
+  els.useResetCreditButton.textContent = '使用中…';
+  els.resetCreditStatus.hidden = false;
+  els.resetCreditStatus.dataset.tone = 'pending';
+  els.resetCreditStatus.textContent = '正在核实卡片并提交，请稍候…';
+  try {
+    const result = await window.codexUsage.useResetCredit(state.pendingResetCredit);
+    if (['reset', 'already_redeemed'].includes(result.code)) {
+      state.usedResetCredits.add(`${state.pendingResetCredit.accountKey}:${state.pendingResetCredit.creditId}`);
+    }
+    if (result.snapshot) { state.snapshot = result.snapshot; render(); }
+    els.resetCreditStatus.textContent = result.message;
+    els.resetCreditStatus.dataset.tone = 'success';
+    els.useResetCreditButton.hidden = true;
+    els.cancelResetCreditButton.textContent = '完成';
+  } catch (error) {
+    els.resetCreditStatus.textContent = String(error?.message || error);
+    els.resetCreditStatus.dataset.tone = 'error';
+    els.useResetCreditButton.textContent = '重试此卡';
+  } finally {
+    state.resetCreditBusy = false;
+    render();
+    els.useResetCreditButton.disabled = false;
+    els.cancelResetCreditButton.disabled = false;
+    els.cancelResetCreditButton.focus();
+  }
+});
+
 function renderLocalSummary(summary) {
   const current = localWindow(summary);
   const cost = estimateModelAwareCost(current);
@@ -619,8 +707,10 @@ function renderLocalSummary(summary) {
     `推理输出 ${formatTokens(current?.reasoningOutputTokens)}`,
     `总计 ${formatTokens(current?.totalTokens)}`,
     `${formatNumber(summary?.sourceFileCount || 0)} 个文件`,
-    `${formatNumber(current?.eventCount || 0)} 条`
-  ].join(' · ');
+    `${formatNumber(current?.eventCount || 0)} 条`,
+    summary?.failedFileCount ? `${formatNumber(summary.failedFileCount)} 个文件读取失败，部分统计待刷新` : '',
+    summary?.skippedLineCount ? `${formatNumber(summary.skippedLineCount)} 行无法解析已跳过，统计可能不完整` : ''
+  ].filter(Boolean).join(' · ');
   renderModelBreakdown(current);
   document.querySelectorAll('[data-local-range]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.localRange === state.localRange);

@@ -11,6 +11,7 @@ const { mergePatch, mergeSparse } = require('./lib/object-utils');
 const { AuthRequestError, createJsonFetcher, throwForAuthFailure } = require('./lib/usage-http');
 const { createTokenLogCache } = require('./lib/token-log-cache');
 const { createPricingCatalog } = require('./lib/pricing-catalog');
+const { createResetCreditRedeemer, reconcileResetCredit, validIdentifier } = require('./lib/reset-credits');
 const { mapAggregateUsageWindows } = require('./lib/usage-windows');
 const {
   firstFreshMembershipExpiresAt,
@@ -46,6 +47,7 @@ const SELF_TEST_MODE = process.argv.includes('--self-test');
 const accountVault = createAccountVault(safeStorage);
 const codexProcessManager = createCodexProcessManager();
 const fetchJson = createJsonFetcher(net);
+const redeemResetCredit = createResetCreditRedeemer({ fetchJson, readLocalAuth: readLocalCodexAuth });
 const { loadTokenLogs } = createTokenLogCache({
   emptyTokenTotals,
   normalizeTokenModel,
@@ -697,6 +699,7 @@ function mapResetCreditDetails(payload) {
   const available = payload.credits
     .filter((credit) => credit?.status === 'available')
     .map((credit) => ({
+      id: validIdentifier(credit.id) ? credit.id : null,
       label: resetCreditLabel(credit.title),
       count: 1,
       acquiredAt: normalizeDate(credit.granted_at),
@@ -1253,6 +1256,8 @@ async function collectTokenUsageSnapshot({
     conflictingFingerprintCount: Object.values(fingerprintAssignments).filter((item) => item?.ambiguous).length,
     sourceFileCount: loadedLogs.logs.length,
     failedFileCount: loadedLogs.failedFileCount,
+    skippedLineCount: loadedLogs.skippedLineCount,
+    projectedLineCount: loadedLogs.projectedLineCount,
     eventCount,
     duplicateEventCount,
     unassignedEventCount,
@@ -1352,6 +1357,8 @@ async function collectLocalTokenSummary() {
       .sort((left, right) => left.date.localeCompare(right.date)),
     sourceFileCount: loadedLogs.logs.length,
     failedFileCount: loadedLogs.failedFileCount,
+    skippedLineCount: loadedLogs.skippedLineCount,
+    projectedLineCount: loadedLogs.projectedLineCount,
     eventCount: scannedEventCount,
     duplicateEventCount,
     latestEventAt: latestEventAt ? new Date(latestEventAt).toISOString() : null
@@ -1376,6 +1383,56 @@ async function fetchResetCreditDetails(local) {
     if (error instanceof AuthRequestError) throw error;
     return null;
   }
+}
+
+async function useResetCredit(request) {
+  if (authTransitionInProgress) throw new Error('账号操作正在进行，请稍后再使用重置卡');
+  authTransitionInProgress = true;
+  try {
+    if (refreshInFlight) await refreshInFlight.catch(() => {});
+    const result = await redeemResetCredit(request);
+    return await reconcileResetCredit(result, syncConsumedResetCredit);
+  } finally {
+    authTransitionInProgress = false;
+  }
+}
+
+async function syncConsumedResetCredit(result, message) {
+  const local = await readLocalCodexAuth();
+  if (local.accountKey !== result.accountKey) return { ...result, message: `${message}；账号已变化，请刷新当前账号` };
+  let usage = null;
+  try { usage = await fetchUsageForLocalAuth(local); } catch { /* Keep the last known quotas. */ }
+  if ((await readLocalCodexAuth()).accountKey !== result.accountKey || state.snapshot.currentAccount?.accountKey !== result.accountKey) {
+    return { ...result, message: `${message}；账号已变化，请刷新当前账号` };
+  }
+  const fresh = Boolean(usage?.__authValidated && hasOfficialUsageData(usage));
+  const { __authValidated, ...usagePatch } = fresh ? usage : {};
+  const cards = (usagePatch.resetCards || state.snapshot.resetCards || []).filter((card) => card.id !== result.creditId);
+  const updateAccount = (account) => account?.accountKey === result.accountKey ? {
+    ...account,
+    usage: { ...account.usage, ...usagePatch, resetCards: cards },
+    ...(fresh ? { usageWindows: usagePatch.usageWindows } : {}),
+    resetCards: cards
+  } : account;
+  const finalMessage = `${message}${fresh ? '，额度与卡片已刷新' : '；额度暂未刷新，请稍后手动刷新'}`;
+  try {
+    const store = await loadAccountsStore();
+    await saveAccountsStore({ ...store, accounts: store.accounts.map(updateAccount) });
+    if ((await readLocalCodexAuth()).accountKey !== result.accountKey) {
+      return { ...result, message: `${message}；账号已变化，请刷新当前账号` };
+    }
+    await saveState({ snapshot: {
+      ...usagePatch,
+      resetCards: cards,
+      currentAccount: updateAccount(state.snapshot.currentAccount),
+      accounts: (state.snapshot.accounts || []).map(updateAccount),
+      sourceStatus: finalMessage,
+      ...(fresh ? { lastSyncedAt: new Date().toISOString() } : {})
+    } }, ['resetCards', 'usageWindows', 'currentAccount', 'accounts']);
+  } catch {
+    return { ...result, message: `${message}；本地保存失败，请手动刷新` };
+  }
+  return { ...result, message: finalMessage, snapshot: getViewSnapshot() };
 }
 
 async function fetchAccountTokenUsage(local, previous = null) {
@@ -2233,7 +2290,9 @@ async function refreshUsageInternal(reason = 'manual') {
       resetCardsAccountLabel: accountLabel(currentAccount),
       localTokenSummary,
       lastSyncedAt: syncedAt,
-      sourceStatus: statusText,
+      sourceStatus: localTokenSummary.skippedLineCount
+        ? `${statusText}；本地日志有 ${localTokenSummary.skippedLineCount} 行无法解析已跳过，统计可能不完整`
+        : statusText,
       obsoleteStatus: null
     }
   }, ['usageWindows', 'tokenUsage', 'accounts', 'currentAccount', 'localTokenSummary', 'resetCards']);
@@ -2386,6 +2445,10 @@ function handleTrusted(channel, handler) {
 }
 
 handleTrusted('usage:get', () => getViewSnapshot());
+handleTrusted('reset-credits:consume', (request) => {
+  if (!request || !validIdentifier(request.accountKey) || !validIdentifier(request.creditId)) throw new Error('无效的重置卡请求');
+  return useResetCredit({ accountKey: request.accountKey, creditId: request.creditId });
+});
 handleTrusted('pricing:get', () => pricingCatalog.snapshot());
 handleTrusted('pricing:refresh', () => pricingCatalog.refresh(true));
 handleTrusted('settings:get', () => getSettingsSnapshot());
