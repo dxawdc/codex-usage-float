@@ -1,7 +1,11 @@
 <div align="center">
   <h1>Codex Usage Float</h1>
   <p><strong>Codex桌面版 多账号用量、多账号切换、会员信息、重置卡与本地 Token 日志汇总工具</strong></p>
-  <p><sub>作者 @可以叫我才哥</sub></p>
+  <!-- caige-author:start -->
+  <p><strong>作者：才哥</strong> · 微信公众号：<strong>可以叫我才哥</strong></p>
+  <p>微信扫码关注：</p>
+  <p><img src="assets/caige-wechat-qrcode.jpg" alt="微信公众号「可以叫我才哥」扫码关注二维码" width="172" height="172" /></p>
+  <!-- caige-author:end -->
   <p>
     <a href="https://github.com/dxawdc/codex-usage-float/releases/latest"><img src="https://img.shields.io/badge/latest_release-v2.2.2-6b7280" alt="latest release v2.2.2" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f81f7" alt="license MIT" /></a>
